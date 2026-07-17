@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>物模型配置平台</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <link href="/css/app.css" rel="stylesheet">
+</head>
+<body>
+
+<!-- ===== Login Overlay ===== -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-card">
+    <div class="text-center mb-4">
+      <div class="brand-icon"><i class="bi bi-boxes"></i></div>
+      <h5 class="fw-bold mt-3 mb-0">物模型配置平台</h5>
+      <div class="text-muted small">请登录以继续</div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">用户名</label>
+      <input type="text" class="form-control" id="login-user" placeholder="请输入用户名" autocomplete="off">
+    </div>
+    <div class="mb-3">
+      <label class="form-label fw-semibold">密码</label>
+      <input type="password" class="form-control" id="login-pass" placeholder="请输入密码">
+    </div>
+    <div class="text-danger small mb-2 d-none" id="login-err">
+      <i class="bi bi-exclamation-circle me-1"></i>用户名或密码错误（admin / 666）
+    </div>
+    <button class="btn btn-primary w-100" id="login-btn">
+      <i class="bi bi-box-arrow-in-right me-1"></i>登 录
+    </button>
+  </div>
+</div>
+
+<!-- ===== App Shell ===== -->
+<div class="app-shell d-none" id="app-shell">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon"><i class="bi bi-boxes"></i></div>
+      <div>
+        <div class="brand-text">物模型平台</div>
+        <div class="brand-sub">Things Model</div>
+      </div>
+    </div>
+    <div class="sidebar-section-title">配置中心</div>
+    <button class="sidebar-item active" id="nav-templates" onclick="switchSection('templates')">
+      <i class="bi bi-collection"></i><span>模板管理</span>
+    </button>
+    <button class="sidebar-item disabled" id="nav-devices" onclick="switchSection('devices')">
+      <i class="bi bi-hdd-network"></i><span>设备管理</span>
+    </button>
+    <button class="sidebar-item disabled" id="nav-aggregation" onclick="switchSection('aggregation')">
+      <i class="bi bi-diagram-3"></i><span>设备聚合</span>
+    </button>
+    <div class="sidebar-footer">
+      <div>v1.0.0</div>
+      <div>© 2026 IoT Studio</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="app-main">
+    <div class="main-inner">
+
+      <!-- ===== Section: 模板管理 ===== -->
+      <section class="app-section" id="section-templates">
+        <div class="section-header">
+          <h4><i class="bi bi-collection me-2" style="color:var(--primary)"></i>模板管理</h4>
+          <div class="sub">管理物模型模板，配置设备档案、属性、服务与告警规则。模板保存到 templats 目录，启动时自动加载。</div>
+        </div>
+        <div class="landing-toolbar">
+          <span class="count-pill">已配置 <span class="fw-semibold" id="tpl-count">0</span> 个物模型模板</span>
+          <button class="btn btn-primary" onclick="newTemplate()">
+            <i class="bi bi-plus-lg me-1"></i>新增物模型模板
+          </button>
+        </div>
+        <div class="template-grid" id="template-grid"></div>
+      </section>
+
+      <!-- ===== Section: 向导 ===== -->
+      <section class="app-section d-none" id="section-wizard">
+        <div class="section-header">
+          <h4><i class="bi bi-magic me-2" style="color:var(--primary)"></i>物模型模板配置向导</h4>
+          <div class="sub">按步骤完成物模型模板的档案、属性、服务、告警配置与预览。</div>
+        </div>
+        <div class="stepper" id="stepper">
+          <div class="step-item active"><div class="step-circle">1</div><div class="step-label">档案信息</div></div>
+          <div class="step-connector"></div>
+          <div class="step-item"><div class="step-circle">2</div><div class="step-label">属性配置</div></div>
+          <div class="step-connector"></div>
+          <div class="step-item"><div class="step-circle">3</div><div class="step-label">服务配置</div></div>
+          <div class="step-connector"></div>
+          <div class="step-item"><div class="step-circle">4</div><div class="step-label">告警配置</div></div>
+          <div class="step-connector"></div>
+          <div class="step-item"><div class="step-circle">5</div><div class="step-label">预览</div></div>
+        </div>
+        <div class="wizard-wrapper">
+          <button class="nav-arrow" id="btn-prev" onclick="prevStep()">&#8249;</button>
+          <div class="wizard-card" id="wizard-card"></div>
+          <button class="nav-arrow" id="btn-next" onclick="nextStep()">&#8250;</button>
+        </div>
+        <div class="step-counter" id="step-counter">第 1 步 / 共 5 步</div>
+      </section>
+
+      <!-- ===== Section: 设备管理（占位）===== -->
+      <section class="app-section d-none" id="section-devices">
+        <div class="section-header">
+          <h4><i class="bi bi-hdd-network me-2" style="color:var(--primary)"></i>设备管理</h4>
+          <div class="sub">物模型模板的实际应用，绑定实际设备属性点形成设备实例配置。</div>
+        </div>
+        <div class="placeholder-section">
+          <h5><i class="bi bi-info-circle me-2" style="color:var(--primary)"></i>功能规划中</h5>
+          <p class="desc">设备管理是模板的实际应用层。通过选择物模型模板，绑定实际设备的属性点（propertyId），形成最终设备实例配置文件。</p>
+          <ul class="todo-list">
+            <li>基于模板创建设备实例</li>
+            <li>绑定实际设备属性点（deviceId + propertyId）</li>
+            <li>支持属性聚合方法（EPT/SUM/AVG/MIN/MAX/AND/OR/NOT）配置</li>
+            <li>生成设备实例配置文件</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ===== Section: 设备聚合（占位）===== -->
+      <section class="app-section d-none" id="section-aggregation">
+        <div class="section-header">
+          <h4><i class="bi bi-diagram-3 me-2" style="color:var(--primary)"></i>设备聚合</h4>
+          <div class="sub">聚合多个设备形成系统，实现数据的复杂聚合与简单控制策略。</div>
+        </div>
+        <div class="placeholder-section">
+          <h5><i class="bi bi-info-circle me-2" style="color:var(--primary)"></i>功能规划中</h5>
+          <p class="desc">设备聚合将多个设备组合形成系统（储能系统、充电桩系统、光伏系统等），可自定义添加系统，实现数据的复杂聚合功能。</p>
+          <ul class="todo-list">
+            <li>自定义添加系统（储能/充电桩/光伏等）</li>
+            <li>聚合多个设备形成系统</li>
+            <li>数据复杂聚合：SOC 相加、功率积分成电量等</li>
+            <li>简单控制策略：功率分配等</li>
+            <li>方法调用支持控制策略下发</li>
+          </ul>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- ===== 属性 Modal ===== -->
+<div class="modal fade" id="propModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-sliders me-2" style="color:var(--primary)"></i>属性配置</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-2">
+            <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
+            <input type="number" class="form-control" id="prop-number" value="0">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label fw-semibold">属性名称 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="prop-name" placeholder="如：温度">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="prop-key" placeholder="如：temperature">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">类型 <span class="text-danger">*</span></label>
+            <select class="form-select" id="prop-type" onchange="toggleEnumDesc('prop-type','prop-desc-list')">
+              <option value="number">number（数值类型，可聚合）</option>
+              <option value="enum">enum（枚举类型，有描述）</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">单位</label>
+            <input type="text" class="form-control" id="prop-unit" placeholder="如：℃">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">默认值</label>
+            <input type="text" class="form-control" id="prop-default" placeholder="如：0">
+          </div>
+          <div class="col-12 enum-desc-wrap">
+            <div class="form-section-divider"><span><i class="bi bi-list-ul me-1"></i>枚举值描述（type=enum 时填写）</span></div>
+            <div id="prop-desc-list"></div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="addEnumRow('prop-desc-list')"><i class="bi bi-plus-lg me-1"></i>添加枚举值</button>
+          </div>
+          <div class="col-12">
+            <div class="form-section-divider"><span><i class="bi bi-link-45deg me-1"></i>属性绑定（聚合方法 + 数据来源）</span></div>
+            <div class="row g-2 mb-2">
+              <div class="col-md-4">
+                <select class="form-select" id="prop-binding-method">
+                  <option value="EPT">EPT - 直接绑定</option>
+                  <option value="SUM">SUM - 求和</option>
+                  <option value="AVG">AVG - 平均值</option>
+                  <option value="MIN">MIN - 最小值</option>
+                  <option value="MAX">MAX - 最大值</option>
+                  <option value="AND">AND - 逻辑与</option>
+                  <option value="OR">OR - 逻辑或</option>
+                  <option value="NOT">NOT - 逻辑非</option>
+                </select>
+              </div>
+            </div>
+            <div id="prop-binding-sources"></div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="addBindingSource('prop-binding-sources')"><i class="bi bi-plus-lg me-1"></i>添加数据来源</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary" onclick="addProperty()"><i class="bi bi-check-lg me-1"></i>保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 服务 Modal ===== -->
+<div class="modal fade" id="methodModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-gear me-2" style="color:var(--primary)"></i>服务配置</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-2">
+            <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
+            <input type="number" class="form-control" id="mt-number" value="0">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label fw-semibold">方法名称 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="mt-name" placeholder="如：开关机">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="mt-key" placeholder="如：onoff">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">类型 <span class="text-danger">*</span></label>
+            <select class="form-select" id="mt-type" onchange="toggleEnumDesc('mt-type','mt-desc-list')">
+              <option value="number">number（数值类型）</option>
+              <option value="enum">enum（枚举类型）</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">最小值</label>
+            <input type="number" class="form-control" id="mt-min" value="0">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label fw-semibold">最大值</label>
+            <input type="number" class="form-control" id="mt-max" value="0">
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold">描述</label>
+            <input type="text" class="form-control" id="mt-desc" placeholder="方法描述">
+          </div>
+          <div class="col-12 enum-desc-wrap">
+            <div class="form-section-divider"><span><i class="bi bi-list-ul me-1"></i>枚举值描述（type=enum 时填写）</span></div>
+            <div id="mt-desc-list"></div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="addEnumRow('mt-desc-list')"><i class="bi bi-plus-lg me-1"></i>添加枚举值</button>
+          </div>
+          <div class="col-12">
+            <div class="form-section-divider"><span><i class="bi bi-link-45deg me-1"></i>控制绑定（单点下发）</span></div>
+            <div class="row g-2">
+              <div class="col-md-6">
+                <input type="text" class="form-control" id="mt-bind-device" placeholder="deviceId">
+              </div>
+              <div class="col-md-6">
+                <input type="text" class="form-control" id="mt-bind-prop" placeholder="propertyId">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary" onclick="addMethod()"><i class="bi bi-check-lg me-1"></i>保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 告警 Modal ===== -->
+<div class="modal fade" id="eventModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-bell me-2" style="color:var(--primary)"></i>告警配置</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-2">
+            <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
+            <input type="number" class="form-control" id="ev-number" value="0">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label fw-semibold">事件名称 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="ev-name" placeholder="如：通讯故障">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="ev-key" placeholder="如：communicationFault">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">告警级别 <span class="text-danger">*</span></label>
+            <select class="form-select" id="ev-level">
+              <option value="0">0 - 提示性告警</option>
+              <option value="1">1 - 一般性告警</option>
+              <option value="2">2 - 严重性告警</option>
+              <option value="3">3 - 紧急故障</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">触发类型 <span class="text-danger">*</span></label>
+            <select class="form-select" id="ev-type">
+              <option value="equal">equal - 等值触发</option>
+              <option value="upper">upper - 上阈值触发</option>
+              <option value="lower">lower - 下阈值触发</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">触发阈值 <span class="text-danger">*</span></label>
+            <input type="number" class="form-control" id="ev-threshold" value="0">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold">持续时间（秒）</label>
+            <input type="number" class="form-control" id="ev-time" value="0" placeholder="0 表示立即触发">
+          </div>
+          <div class="col-12">
+            <label class="form-label fw-semibold">描述</label>
+            <input type="text" class="form-control" id="ev-desc" placeholder="事件描述">
+          </div>
+          <div class="col-12">
+            <div class="form-section-divider"><span><i class="bi bi-link-45deg me-1"></i>关联属性（可多个）</span></div>
+            <div id="ev-bindings"></div>
+            <button class="btn btn-outline-secondary btn-sm" onclick="addBindingSource('ev-bindings')"><i class="bi bi-plus-lg me-1"></i>添加关联属性</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light" data-bs-dismiss="modal">取消</button>
+        <button class="btn btn-primary" onclick="addEvent()"><i class="bi bi-check-lg me-1"></i>保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/js/constants.js"></script>
+<script src="/js/helpers.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/templates.js"></script>
+<script src="/js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+{
+    "name": "BMS",
+    "code": "BMS-DEVICE-001",
+    "category": "BMS",
+    "version": "1.0.0",
+    "description": "Universal energy storage BMS device model template.",
+    "properties": [
+        {
+            "number": 0,
+            "name": "通讯状态",
+            "key": "online",
+            "default": 0,
+            "unit": "",
+            "type": "enum",
+            "description": [
+                {
+                    "name": "离线",
+                    "key": "offline",
+                    "status": 0,
+                    "value": 0
+                },
+                {
+                    "name": "在线",
+                    "key": "online",
+                    "status": 1,
+                    "value": 1
+                },
+                {
+                    "name": "未知",
+                    "key": "unknown",
+                    "status": -1,
+                    "value": 2
+                }
+            ],
+            "binding": {
+                "method": "EPT",
+                "sources": [
+                    {
+                        "deviceId": "",
+                        "propertyId": ""
+                    }
+                ]
+            }
+        }
+    ],
+    "methods": [],
+    "events": []
+}
