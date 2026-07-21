@@ -302,12 +302,6 @@ function resetPropertyModal() {
   document.getElementById('prop-unit').value = '';
   document.getElementById('prop-type').value = 'number';
   document.getElementById('prop-desc-list').innerHTML = '';
-  document.getElementById('prop-binding-method').value = 'EPT';
-  document.getElementById('prop-binding-sources').innerHTML = `<div class="input-group mb-1">
-    <input type="text" class="form-control prop-src-device" placeholder="deviceId">
-    <input type="text" class="form-control prop-src-prop" placeholder="propertyId">
-    <button class="btn btn-outline-danger" onclick="removeBindingSource(this)">×</button>
-  </div>`;
   toggleEnumDesc('prop-type', 'prop-desc-list');
 }
 
@@ -323,11 +317,6 @@ function editProperty(index) {
   // 枚举描述
   const dl = document.getElementById('prop-desc-list');
   dl.innerHTML = (r.description || []).map((d, i) => enumDescRow(d, i)).join('') || '';
-  // 绑定
-  document.getElementById('prop-binding-method').value = (r.binding && r.binding.method) || 'EPT';
-  const sources = (r.binding && r.binding.sources) || [];
-  document.getElementById('prop-binding-sources').innerHTML =
-    (sources.length ? sources : [{}]).map(s => bindingSourceRow(s.deviceId, s.propertyId)).join('');
   toggleEnumDesc('prop-type', 'prop-desc-list');
   new bootstrap.Modal(document.getElementById('propModal')).show();
 }
@@ -340,8 +329,7 @@ function addProperty() {
     default: parseDefault(document.getElementById('prop-default').value, document.getElementById('prop-type').value),
     unit: document.getElementById('prop-unit').value.trim(),
     type: document.getElementById('prop-type').value,
-    description: collectEnumDesc('prop-desc-list'),
-    binding: collectBinding('prop-binding-method', 'prop-binding-sources')
+    description: collectEnumDesc('prop-desc-list')
   };
   if (!prop.name || !prop.key) { toast('请填写属性名称和标识符', 'error'); return; }
   if (_editingPropIndex >= 0) state.draft.properties[_editingPropIndex] = prop;
@@ -404,8 +392,6 @@ function resetMethodModal() {
   document.getElementById('mt-min').value = '0';
   document.getElementById('mt-max').value = '0';
   document.getElementById('mt-desc-list').innerHTML = '';
-  document.getElementById('mt-bind-device').value = '';
-  document.getElementById('mt-bind-prop').value = '';
   toggleEnumDesc('mt-type', 'mt-desc-list');
 }
 
@@ -421,8 +407,6 @@ function editMethod(index) {
   document.getElementById('mt-max').value = (r.validation && r.validation.max != null) ? r.validation.max : 0;
   const dl = document.getElementById('mt-desc-list');
   dl.innerHTML = (r.descriptions && Array.isArray(r.descriptions) ? r.descriptions : []).map((d, i) => enumDescRow(d, i)).join('') || '';
-  document.getElementById('mt-bind-device').value = (r.binding && r.binding.deviceId) || '';
-  document.getElementById('mt-bind-prop').value = (r.binding && r.binding.propertyId) || '';
   toggleEnumDesc('mt-type', 'mt-desc-list');
   new bootstrap.Modal(document.getElementById('methodModal')).show();
 }
@@ -438,11 +422,7 @@ function addMethod() {
       min: parseFloat(document.getElementById('mt-min').value) || 0,
       max: parseFloat(document.getElementById('mt-max').value) || 0
     },
-    description: collectEnumDesc('mt-desc-list'),
-    binding: {
-      deviceId: document.getElementById('mt-bind-device').value.trim(),
-      propertyId: document.getElementById('mt-bind-prop').value.trim()
-    }
+    description: collectEnumDesc('mt-desc-list')
   };
   if (!m.name || !m.key) { toast('请填写方法名称和标识符', 'error'); return; }
   if (_editingMethodIndex >= 0) state.draft.methods[_editingMethodIndex] = m;
@@ -510,7 +490,6 @@ function resetEventModal() {
   document.getElementById('ev-type').value = 'equal';
   document.getElementById('ev-threshold').value = '0';
   document.getElementById('ev-time').value = '0';
-  document.getElementById('ev-bindings').innerHTML = bindingSourceRow('', '');
 }
 
 function editEvent(index) {
@@ -524,8 +503,6 @@ function editEvent(index) {
   document.getElementById('ev-type').value = r.type || 'equal';
   document.getElementById('ev-threshold').value = r.threshold != null ? r.threshold : 0;
   document.getElementById('ev-time').value = r.time != null ? r.time : 0;
-  const bs = (r.binding && r.binding.length) ? r.binding : [{}];
-  document.getElementById('ev-bindings').innerHTML = bs.map(b => bindingSourceRow(b.deviceId, b.propertyId)).join('');
   new bootstrap.Modal(document.getElementById('eventModal')).show();
 }
 
@@ -538,8 +515,7 @@ function addEvent() {
     level: parseInt(document.getElementById('ev-level').value) || 0,
     type: document.getElementById('ev-type').value,
     threshold: parseFloat(document.getElementById('ev-threshold').value) || 0,
-    time: parseInt(document.getElementById('ev-time').value) || 0,
-    binding: collectEventBindings('ev-bindings')
+    time: parseInt(document.getElementById('ev-time').value) || 0
   };
   if (!e.name || !e.key) { toast('请填写事件名称和标识符', 'error'); return; }
   if (_editingEventIndex >= 0) state.draft.events[_editingEventIndex] = e;
@@ -670,47 +646,6 @@ function toggleEnumDesc(typeId, descId) {
 }
 
 function removeRow(btn) { btn.closest('.enum-row, .input-group').remove(); }
-
-// ===== 共享：属性绑定源编辑 =====
-function bindingSourceRow(deviceId, propertyId) {
-  return `<div class="input-group mb-1 src-row">
-    <input type="text" class="form-control src-device" placeholder="deviceId" value="${escapeHtml(deviceId || '')}">
-    <input type="text" class="form-control src-prop" placeholder="propertyId" value="${escapeHtml(propertyId || '')}">
-    <button class="btn btn-outline-danger" onclick="removeRow(this)">×</button>
-  </div>`;
-}
-
-function addBindingSource(listId) {
-  const list = document.getElementById(listId);
-  const div = document.createElement('div');
-  div.className = 'input-group mb-1 src-row';
-  div.innerHTML = bindingSourceRow('', '');
-  // 清空占位 value 属性避免重复
-  list.appendChild(div);
-}
-
-function removeBindingSource(btn) { btn.closest('.src-row').remove(); }
-
-function collectBinding(methodId, sourcesId) {
-  const method = document.getElementById(methodId).value || 'EPT';
-  const sources = [];
-  document.querySelectorAll('#' + sourcesId + ' .src-row').forEach(row => {
-    const deviceId = row.querySelector('.src-device').value.trim();
-    const propertyId = row.querySelector('.src-prop').value.trim();
-    if (deviceId || propertyId) sources.push({ deviceId, propertyId });
-  });
-  return { method, sources };
-}
-
-function collectEventBindings(sourcesId) {
-  const out = [];
-  document.querySelectorAll('#' + sourcesId + ' .src-row').forEach(row => {
-    const deviceId = row.querySelector('.src-device').value.trim();
-    const propertyId = row.querySelector('.src-prop').value.trim();
-    if (deviceId || propertyId) out.push({ deviceId, propertyId });
-  });
-  return out;
-}
 
 // ===== 向导导航 =====
 function nextStep() {

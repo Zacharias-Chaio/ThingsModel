@@ -44,5 +44,17 @@
         }
     ],
     "methods": [],
-    "events": []
+    "events": [
+        {
+            "number": 0,
+            "name": "通讯故障",
+            "key": "commFault",
+            "description": "通讯故障",
+            "level": 2,
+            "type": "equal",
+            "threshold": 1,
+            "time": 2,
+            "binding": []
+        }
+    ]
 }

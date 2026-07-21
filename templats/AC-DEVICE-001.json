@@ -1,0 +1,10 @@
+{
+    "name": "AC",
+    "code": "AC-DEVICE-001",
+    "category": "AC",
+    "version": "1.0.0",
+    "description": "空调设备",
+    "properties": [],
+    "methods": [],
+    "events": []
+}

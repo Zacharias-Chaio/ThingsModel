@@ -158,15 +158,15 @@
       </div>
       <div class="modal-body">
         <div class="row g-3">
-          <div class="col-md-2">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
             <input type="number" class="form-control" id="prop-number" value="0">
           </div>
-          <div class="col-md-5">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">属性名称 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="prop-name" placeholder="如：温度">
           </div>
-          <div class="col-md-5">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="prop-key" placeholder="如：temperature">
           </div>
@@ -190,25 +190,6 @@
             <div id="prop-desc-list"></div>
             <button class="btn btn-outline-secondary btn-sm" onclick="addEnumRow('prop-desc-list')"><i class="bi bi-plus-lg me-1"></i>添加枚举值</button>
           </div>
-          <div class="col-12">
-            <div class="form-section-divider"><span><i class="bi bi-link-45deg me-1"></i>属性绑定（聚合方法 + 数据来源）</span></div>
-            <div class="row g-2 mb-2">
-              <div class="col-md-4">
-                <select class="form-select" id="prop-binding-method">
-                  <option value="EPT">EPT - 直接绑定</option>
-                  <option value="SUM">SUM - 求和</option>
-                  <option value="AVG">AVG - 平均值</option>
-                  <option value="MIN">MIN - 最小值</option>
-                  <option value="MAX">MAX - 最大值</option>
-                  <option value="AND">AND - 逻辑与</option>
-                  <option value="OR">OR - 逻辑或</option>
-                  <option value="NOT">NOT - 逻辑非</option>
-                </select>
-              </div>
-            </div>
-            <div id="prop-binding-sources"></div>
-            <button class="btn btn-outline-secondary btn-sm" onclick="addBindingSource('prop-binding-sources')"><i class="bi bi-plus-lg me-1"></i>添加数据来源</button>
-          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -229,30 +210,30 @@
       </div>
       <div class="modal-body">
         <div class="row g-3">
-          <div class="col-md-2">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
             <input type="number" class="form-control" id="mt-number" value="0">
           </div>
-          <div class="col-md-5">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">方法名称 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="mt-name" placeholder="如：开关机">
           </div>
-          <div class="col-md-5">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="mt-key" placeholder="如：onoff">
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">类型 <span class="text-danger">*</span></label>
             <select class="form-select" id="mt-type" onchange="toggleEnumDesc('mt-type','mt-desc-list')">
               <option value="number">number（数值类型）</option>
               <option value="enum">enum（枚举类型）</option>
             </select>
           </div>
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">最小值</label>
             <input type="number" class="form-control" id="mt-min" value="0">
           </div>
-          <div class="col-md-3">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">最大值</label>
             <input type="number" class="form-control" id="mt-max" value="0">
           </div>
@@ -264,17 +245,6 @@
             <div class="form-section-divider"><span><i class="bi bi-list-ul me-1"></i>枚举值描述（type=enum 时填写）</span></div>
             <div id="mt-desc-list"></div>
             <button class="btn btn-outline-secondary btn-sm" onclick="addEnumRow('mt-desc-list')"><i class="bi bi-plus-lg me-1"></i>添加枚举值</button>
-          </div>
-          <div class="col-12">
-            <div class="form-section-divider"><span><i class="bi bi-link-45deg me-1"></i>控制绑定（单点下发）</span></div>
-            <div class="row g-2">
-              <div class="col-md-6">
-                <input type="text" class="form-control" id="mt-bind-device" placeholder="deviceId">
-              </div>
-              <div class="col-md-6">
-                <input type="text" class="form-control" id="mt-bind-prop" placeholder="propertyId">
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -296,15 +266,15 @@
       </div>
       <div class="modal-body">
         <div class="row g-3">
-          <div class="col-md-2">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
             <input type="number" class="form-control" id="ev-number" value="0">
           </div>
-          <div class="col-md-5">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">事件名称 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="ev-name" placeholder="如：通讯故障">
           </div>
-          <div class="col-md-5">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="ev-key" placeholder="如：communicationFault">
           </div>
@@ -330,17 +300,12 @@
             <input type="number" class="form-control" id="ev-threshold" value="0">
           </div>
           <div class="col-md-6">
-            <label class="form-label fw-semibold">持续时间（秒）</label>
+            <label class="form-label fw-semibold">触发时间（ms）</label>
             <input type="number" class="form-control" id="ev-time" value="0" placeholder="0 表示立即触发">
           </div>
           <div class="col-12">
             <label class="form-label fw-semibold">描述</label>
             <input type="text" class="form-control" id="ev-desc" placeholder="事件描述">
-          </div>
-          <div class="col-12">
-            <div class="form-section-divider"><span><i class="bi bi-link-45deg me-1"></i>关联属性（可多个）</span></div>
-            <div id="ev-bindings"></div>
-            <button class="btn btn-outline-secondary btn-sm" onclick="addBindingSource('ev-bindings')"><i class="bi bi-plus-lg me-1"></i>添加关联属性</button>
           </div>
         </div>
       </div>
