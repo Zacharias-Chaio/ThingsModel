@@ -113,9 +113,26 @@ func (s *TemplateStore) Save(t *Template) error {
 	}
 
 	s.mu.Lock()
-	s.data[t.Code] = t
+	s.data[t.Code] = cloneTemplate(t)
 	s.mu.Unlock()
 	return nil
+}
+
+// cloneTemplate 返回模板的深拷贝，避免外部修改影响内存存储。
+// 优先用 JSON 序列化保证切片字段独立；序列化失败时退回浅拷贝防止 nil 解引用。
+func cloneTemplate(t *Template) *Template {
+	if t == nil {
+		return nil
+	}
+	raw, err := json.Marshal(t)
+	if err == nil {
+		var cp Template
+		if err := json.Unmarshal(raw, &cp); err == nil {
+			return &cp
+		}
+	}
+	cp := *t
+	return &cp
 }
 
 // Delete 按 Code 删除模板：删文件 + 删内存索引。
@@ -135,8 +152,8 @@ func (s *TemplateStore) Delete(code string) error {
 }
 
 var (
-	ErrNotFound   = errors.New("模板不存在")
-	ErrEmptyCode  = errors.New("模板编码不能为空")
+	ErrNotFound  = errors.New("模板不存在")
+	ErrEmptyCode = errors.New("模板编码不能为空")
 )
 
 // sanitizeFileName 替换文件名中不安全字符，避免路径穿越。

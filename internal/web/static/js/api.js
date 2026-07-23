@@ -30,3 +30,15 @@ const TemplatesAPI = {
   remove: (code)         => apiDelete('/templates/' + encodeURIComponent(code)),
   scan:   ()             => apiPost('/templates/scan'),
 };
+
+const DevicesAPI = {
+  list:   ()         => apiGet('/devices'),
+  get:    (id)       => apiGet('/devices/' + encodeURIComponent(id)),
+  save:   (device)   => apiPost('/devices', device),
+  remove: (id)       => apiDelete('/devices/' + encodeURIComponent(id)),
+};
+
+const RuntimeAPI = {
+  list: ()     => apiGet('/runtime/devices'),
+  get:  (id)   => apiGet('/runtime/devices/' + encodeURIComponent(id)),
+};

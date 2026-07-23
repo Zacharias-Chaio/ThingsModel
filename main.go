@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"thingsmodel/internal/api"
+	"thingsmodel/internal/runtime"
 	"thingsmodel/internal/store"
 	"thingsmodel/internal/web"
 )
@@ -19,6 +20,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":8090", "HTTP 监听地址")
 	tplDir := flag.String("templates", "templats", "模板目录（相对或绝对路径）")
+	dbPath := flag.String("db", "data/thingsmodel.db", "SQLite 数据库文件（相对或绝对路径）")
 	flag.Parse()
 
 	absTplDir, err := filepath.Abs(*tplDir)
@@ -29,6 +31,22 @@ func main() {
 	if err := os.MkdirAll(absTplDir, 0755); err != nil {
 		log.Fatalf("创建模板目录失败: %v", err)
 	}
+	absDBPath, err := filepath.Abs(*dbPath)
+	if err != nil {
+		log.Fatalf("解析数据库路径失败: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(absDBPath), 0755); err != nil {
+		log.Fatalf("创建数据库目录失败: %v", err)
+	}
+	db, err := store.Open(absDBPath)
+	if err != nil {
+		log.Fatalf("初始化数据库失败: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("获取数据库连接失败: %v", err)
+	}
+	defer sqlDB.Close()
 
 	// 启动时扫描加载所有模板
 	tplStore := store.NewTemplateStore(absTplDir)
@@ -38,7 +56,11 @@ func main() {
 		log.Printf("[info] 已加载 %d 个物模型模板 (目录: %s)", n, absTplDir)
 	}
 
-	srv := &api.Server{Templates: tplStore}
+	deviceRuntime := runtime.NewRegistry()
+	srv := &api.Server{Templates: tplStore, DB: db, Runtime: deviceRuntime}
+	if err := srv.ReloadRuntime(); err != nil {
+		log.Fatalf("加载设备配置失败: %v", err)
+	}
 	router := web.NewRouter(srv)
 
 	httpSrv := &http.Server{

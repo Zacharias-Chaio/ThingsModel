@@ -14,32 +14,27 @@
             "type": "enum",
             "description": [
                 {
-                    "name": "离线",
+                    "enum": 0,
                     "key": "offline",
-                    "status": 0,
+                    "name": "离线",
                     "value": 0
                 },
                 {
-                    "name": "在线",
+                    "enum": 1,
                     "key": "online",
-                    "status": 1,
+                    "name": "在线",
                     "value": 1
                 },
                 {
+                    "enum": -1,
+                    "key": "unknow",
                     "name": "未知",
-                    "key": "unknown",
-                    "status": -1,
-                    "value": 2
+                    "value": -1
                 }
             ],
             "binding": {
-                "method": "EPT",
-                "sources": [
-                    {
-                        "deviceId": "",
-                        "propertyId": ""
-                    }
-                ]
+                "method": "",
+                "sources": null
             }
         },
         {
@@ -92,15 +87,15 @@
             },
             "descriptions": [
                 {
-                    "name": "关闭",
+                    "enum": 0,
                     "key": "off",
-                    "status": 0,
+                    "name": "关闭",
                     "value": 0
                 },
                 {
-                    "name": "开启",
+                    "enum": 1,
                     "key": "on",
-                    "status": 1,
+                    "name": "开启",
                     "value": 1
                 }
             ],

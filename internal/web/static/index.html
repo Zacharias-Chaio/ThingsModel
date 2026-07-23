@@ -51,8 +51,11 @@
     <button class="sidebar-item active" id="nav-templates" onclick="switchSection('templates')">
       <i class="bi bi-collection"></i><span>模板管理</span>
     </button>
-    <button class="sidebar-item disabled" id="nav-devices" onclick="switchSection('devices')">
+    <button class="sidebar-item" id="nav-devices" onclick="switchSection('devices')">
       <i class="bi bi-hdd-network"></i><span>设备管理</span>
+    </button>
+    <button class="sidebar-item" id="nav-runtime" onclick="switchSection('runtime')">
+      <i class="bi bi-activity"></i><span>运行数据</span>
     </button>
     <button class="sidebar-item disabled" id="nav-aggregation" onclick="switchSection('aggregation')">
       <i class="bi bi-diagram-3"></i><span>设备聚合</span>
@@ -107,21 +110,47 @@
         <div class="step-counter" id="step-counter">第 1 步 / 共 5 步</div>
       </section>
 
-      <!-- ===== Section: 设备管理（占位）===== -->
+      <!-- ===== Section: 设备管理 ===== -->
       <section class="app-section d-none" id="section-devices">
         <div class="section-header">
           <h4><i class="bi bi-hdd-network me-2" style="color:var(--primary)"></i>设备管理</h4>
-          <div class="sub">物模型模板的实际应用，绑定实际设备属性点形成设备实例配置。</div>
+          <div class="sub">将物模型实例化为实际设备，并配置属性、服务与告警的实际点位映射。</div>
         </div>
-        <div class="placeholder-section">
-          <h5><i class="bi bi-info-circle me-2" style="color:var(--primary)"></i>功能规划中</h5>
-          <p class="desc">设备管理是模板的实际应用层。通过选择物模型模板，绑定实际设备的属性点（propertyId），形成最终设备实例配置文件。</p>
-          <ul class="todo-list">
-            <li>基于模板创建设备实例</li>
-            <li>绑定实际设备属性点（deviceId + propertyId）</li>
-            <li>支持属性聚合方法（EPT/SUM/AVG/MIN/MAX/AND/OR/NOT）配置</li>
-            <li>生成设备实例配置文件</li>
-          </ul>
+        <div class="landing-toolbar">
+          <span class="count-pill">已配置 <span class="fw-semibold" id="device-count">0</span> 台设备</span>
+          <button class="btn btn-primary" onclick="newDevice()"><i class="bi bi-plus-lg me-1"></i>新增设备实例</button>
+        </div>
+        <div class="template-grid" id="device-grid"></div>
+      </section>
+
+      <!-- ===== Section: 设备配置向导 ===== -->
+      <section class="app-section d-none" id="section-device-wizard">
+        <div class="section-header">
+          <h4><i class="bi bi-hdd-stack me-2" style="color:var(--primary)"></i>设备实例配置</h4>
+          <div class="sub">基于模板保存独立设备快照，配置变更会立即热重载到运行配置。</div>
+        </div>
+        <div class="stepper" id="device-stepper"></div>
+        <div class="wizard-wrapper">
+          <button class="nav-arrow" id="device-prev" onclick="prevDeviceStep()" title="上一步">&lsaquo;</button>
+          <div class="wizard-card" id="device-wizard-card"></div>
+          <button class="nav-arrow" id="device-next" onclick="nextDeviceStep()" title="下一步">&rsaquo;</button>
+        </div>
+        <div class="step-counter" id="device-step-counter"></div>
+      </section>
+
+      <!-- ===== Section: 运行数据 ===== -->
+      <section class="app-section d-none" id="section-runtime">
+        <div class="section-header">
+          <h4><i class="bi bi-activity me-2" style="color:var(--primary)"></i>运行数据</h4>
+          <div class="sub">查看已加载设备的属性、服务和告警状态。真实数据将在设备采集端接入后显示。</div>
+        </div>
+        <div class="landing-toolbar">
+          <span class="count-pill"><i class="bi bi-info-circle me-1"></i>当前未接入实时采集引擎</span>
+          <button class="btn btn-outline-secondary btn-sm" onclick="loadRuntimeDevices().then(renderRuntimeDevices)"><i class="bi bi-arrow-clockwise me-1"></i>刷新</button>
+        </div>
+        <div class="runtime-layout">
+          <div class="runtime-device-list" id="runtime-device-list"></div>
+          <div class="runtime-detail" id="runtime-detail"></div>
         </div>
       </section>
 
@@ -322,6 +351,8 @@
 <script src="/js/helpers.js"></script>
 <script src="/js/api.js"></script>
 <script src="/js/templates.js"></script>
+<script src="/js/devices.js"></script>
+<script src="/js/runtime.js"></script>
 <script src="/js/main.js"></script>
 </body>
 </html>

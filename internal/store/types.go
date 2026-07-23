@@ -31,10 +31,10 @@ type Property struct {
 
 // EnumDesc 枚举值描述。
 type EnumDesc struct {
-	Name   string `json:"name"`   // 中文名称
-	Key    string `json:"key"`    // 英文标识
-	Status int    `json:"status"` // 状态枚举值（不可修改）
-	Value  any    `json:"value"`  // 实际采集/下发值
+	Enum  int    `json:"enum"`  // 枚举值（不可修改）
+	Key   string `json:"key"`   // 英文标识
+	Name  string `json:"name"`  // 中文名称
+	Value any    `json:"value"` // 实际采集/下发值
 }
 
 // Binding 属性绑定：聚合方法 + 多个数据来源。
@@ -85,6 +85,6 @@ type Event struct {
 	Level       int             `json:"level"`       // 0-提示 1-一般 2-严重 3-紧急
 	Type        string          `json:"type"`        // equal | upper | lower
 	Threshold   float64         `json:"threshold"`   // 触发阈值
-	Time        int             `json:"time"`        // 持续时间（秒），0 表示立即触发
+	Time        int             `json:"time"`        // 持续时间（毫秒），0 表示立即触发
 	Binding     []BindingSource `json:"binding"`     // 关联属性列表
 }

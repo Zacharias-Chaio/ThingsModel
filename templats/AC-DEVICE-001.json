@@ -4,7 +4,69 @@
     "category": "AC",
     "version": "1.0.0",
     "description": "空调设备",
-    "properties": [],
-    "methods": [],
-    "events": []
+    "properties": [
+        {
+            "number": 0,
+            "name": "通讯状态",
+            "key": "comm",
+            "default": 0,
+            "unit": "",
+            "type": "enum",
+            "description": [
+                {
+                    "enum": 0,
+                    "key": "offline",
+                    "name": "离线",
+                    "value": 0
+                },
+                {
+                    "enum": 1,
+                    "key": "online",
+                    "name": "在线",
+                    "value": 1
+                },
+                {
+                    "enum": -1,
+                    "key": "unknow",
+                    "name": "未知",
+                    "value": -1
+                }
+            ],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        }
+    ],
+    "methods": [
+        {
+            "number": 0,
+            "name": "开关机",
+            "key": "onoff",
+            "desc": "",
+            "type": "enum",
+            "validation": {
+                "min": 0,
+                "max": 0
+            },
+            "descriptions": null,
+            "binding": {
+                "deviceId": "",
+                "propertyId": ""
+            }
+        }
+    ],
+    "events": [
+        {
+            "number": 0,
+            "name": "通讯故障",
+            "key": "comm_fault",
+            "description": "设备离线",
+            "level": 2,
+            "type": "equal",
+            "threshold": 1,
+            "time": 0,
+            "binding": null
+        }
+    ]
 }

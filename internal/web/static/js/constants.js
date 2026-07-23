@@ -14,6 +14,14 @@ const WIZARD_STEPS = [
   { key: 'preview',     title: '预览',         sub: '确认物模型配置并导出保存',       icon: 'bi-eye' }
 ];
 
+const DEVICE_WIZARD_STEPS = [
+  { key: 'profile', title: '设备档案', sub: '选择模板并填写设备实例信息', icon: 'bi-hdd-network' },
+  { key: 'properties', title: '属性映射', sub: '绑定实际设备属性点与聚合来源', icon: 'bi-sliders' },
+  { key: 'methods', title: '服务映射', sub: '配置服务的实际下发点位', icon: 'bi-gear' },
+  { key: 'events', title: '告警映射', sub: '配置告警监测点位', icon: 'bi-bell' },
+  { key: 'preview', title: '预览保存', sub: '检查并保存设备实例配置', icon: 'bi-eye' }
+];
+
 // 属性聚合方法枚举（模板说明.md）
 const BINDING_METHODS = ['EPT', 'SUM', 'AVG', 'MIN', 'MAX', 'AND', 'OR', 'NOT'];
 
@@ -38,6 +46,13 @@ const state = {
   currentStep: 0,           // 当前向导步骤索引
   isEditing: false,         // 是否编辑现有模板
   draft: emptyDraft(),      // 向导弹稿
+  devices: [],
+  deviceDraft: emptyDeviceDraft(),
+  deviceStep: 0,
+  isEditingDevice: false,
+  runtimeDevices: [],
+  runtimeSelectedId: '',
+  runtimeTab: 'properties',
 };
 
 // 创建空白草稿
@@ -51,5 +66,12 @@ function emptyDraft() {
     properties: [],
     methods: [],
     events: []
+  };
+}
+
+function emptyDeviceDraft() {
+  return {
+    id: '', name: '', templateCode: '', templateVersion: '', description: '', enabled: true,
+    properties: [], methods: [], events: []
   };
 }

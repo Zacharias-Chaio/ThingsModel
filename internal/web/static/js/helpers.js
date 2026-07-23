@@ -19,6 +19,8 @@ function switchSection(key) {
 
   // 按区块触发渲染
   if (key === 'templates') renderTemplateList();
+  if (key === 'devices') loadDevices().then(renderDeviceList);
+  if (key === 'runtime') loadRuntimeDevices().then(renderRuntimeDevices);
 }
 
 // 触发文件下载（用于导出 JSON）

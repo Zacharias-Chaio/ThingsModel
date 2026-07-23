@@ -50,13 +50,13 @@ function renderTemplateList() {
           <div class="mc-stat"><div class="num">${eventCount}</div><div class="lbl">告警</div></div>
         </div>
         <div class="model-card-actions">
-          <button class="btn btn-outline-primary btn-sm" onclick="editTemplate('${escapeHtml(t.code)}')">
+          <button class="btn btn-outline-primary btn-sm" onclick='editTemplate(${JSON.stringify(t.code)})'>
             <i class="bi bi-pencil me-1"></i>编辑
           </button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="exportTemplate('${escapeHtml(t.code)}')">
+          <button class="btn btn-outline-secondary btn-sm" onclick='exportTemplate(${JSON.stringify(t.code)})'>
             <i class="bi bi-download me-1"></i>导出
           </button>
-          <button class="btn btn-outline-danger btn-sm" onclick="deleteTemplate('${escapeHtml(t.code)}','${escapeHtml(t.name)}')">
+          <button class="btn btn-outline-danger btn-sm" onclick='deleteTemplate(${JSON.stringify(t.code)},${JSON.stringify(t.name)})'>
             <i class="bi bi-trash"></i>
           </button>
         </div>
@@ -356,7 +356,7 @@ function methodsBody() {
         <td>${escapeHtml(r.name)}</td>
         <td><code>${escapeHtml(r.key)}</code></td>
         <td>${typeBadge(r.type)}</td>
-        <td>${escapeHtml(r.description || '-')}</td>
+        <td>${escapeHtml(r.desc || '-')}</td>
         <td class="text-end">
           <button class="btn btn-sm btn-outline-primary" onclick="editMethod(${i})"><i class="bi bi-pencil"></i></button>
           <button class="btn btn-sm btn-outline-danger" onclick="removeMethod(${i})"><i class="bi bi-trash"></i></button>
@@ -416,13 +416,13 @@ function addMethod() {
     number: parseInt(document.getElementById('mt-number').value) || 0,
     name: document.getElementById('mt-name').value.trim(),
     key: document.getElementById('mt-key').value.trim(),
-    description: document.getElementById('mt-desc').value.trim(),
+    desc: document.getElementById('mt-desc').value.trim(),
     type: document.getElementById('mt-type').value,
     validation: {
       min: parseFloat(document.getElementById('mt-min').value) || 0,
       max: parseFloat(document.getElementById('mt-max').value) || 0
     },
-    description: collectEnumDesc('mt-desc-list')
+    descriptions: collectEnumDesc('mt-desc-list')
   };
   if (!m.name || !m.key) { toast('请填写方法名称和标识符', 'error'); return; }
   if (_editingMethodIndex >= 0) state.draft.methods[_editingMethodIndex] = m;
@@ -583,9 +583,9 @@ async function saveDraft() {
 function enumDescRow(d, i) {
   return `
     <div class="input-group mb-1 enum-row">
-      <input type="text" class="form-control enum-name" placeholder="名称(如:在线)" value="${escapeHtml(d.name || '')}">
+      <input type="number" class="form-control enum-enum" placeholder="enum" value="${d.enum != null ? d.enum : ''}">
       <input type="text" class="form-control enum-key" placeholder="key(如:online)" value="${escapeHtml(d.key || '')}">
-      <input type="number" class="form-control enum-status" placeholder="status" value="${d.status != null ? d.status : ''}">
+      <input type="text" class="form-control enum-name" placeholder="名称(如:在线)" value="${escapeHtml(d.name || '')}">
       <input type="text" class="form-control enum-value" placeholder="value" value="${d.value != null ? d.value : ''}">
       <button class="btn btn-outline-danger" onclick="removeRow(this)">×</button>
     </div>`;
@@ -596,10 +596,10 @@ function addEnumRow(listId) {
   const div = document.createElement('div');
   div.className = 'input-group mb-1 enum-row';
   div.innerHTML = `
-    <input type="text" class="form-control enum-name" placeholder="名称">
+    <input type="number" class="form-control enum-enum" placeholder="enum">
     <input type="text" class="form-control enum-key" placeholder="key">
-    <input type="number" class="form-control enum-status" placeholder="status">
-    <input type="text" class="form-control enum-value" placeholder="value">
+    <input type="text" class="form-control enum-name" placeholder="name">
+    <input type="number" class="form-control enum-value" placeholder="value">
     <button class="btn btn-outline-danger" onclick="removeRow(this)">×</button>`;
   list.appendChild(div);
 }
@@ -607,16 +607,16 @@ function addEnumRow(listId) {
 function collectEnumDesc(listId) {
   const out = [];
   document.querySelectorAll('#' + listId + ' .enum-row').forEach(row => {
-    const name = row.querySelector('.enum-name').value.trim();
+    const enumValue = row.querySelector('.enum-enum').value.trim();
     const key = row.querySelector('.enum-key').value.trim();
-    const status = row.querySelector('.enum-status').value.trim();
+    const name = row.querySelector('.enum-name').value.trim();
     const value = row.querySelector('.enum-value').value.trim();
-    if (name || key || status || value) {
+    if (enumValue || key || name || value) {
       out.push({
-        name: name,
+        enum: enumValue !== '' ? parseInt(enumValue) : 0,
         key: key,
-        status: status !== '' ? parseInt(status) : 0,
-        value: parseValue(value)
+        name: name,
+        value: value !== '' ? parseInt(value) : 0
       });
     }
   });
@@ -640,7 +640,7 @@ function parseDefault(v, type) {
 // 切换枚举描述区显隐
 function toggleEnumDesc(typeId, descId) {
   const type = document.getElementById(typeId).value;
-  const desc = document.getElementById(descId).parentElement.querySelector('#' + descId);
+  const desc = document.getElementById(descId);
   const wrap = desc.closest('.enum-desc-wrap');
   if (wrap) wrap.style.display = (type === 'enum') ? '' : 'none';
 }

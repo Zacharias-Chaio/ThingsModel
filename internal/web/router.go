@@ -20,7 +20,6 @@ func NewRouter(srv *api.Server) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(requestLog)
 
 	// REST API
 	r.Route("/api", func(r chi.Router) {
@@ -29,6 +28,12 @@ func NewRouter(srv *api.Server) http.Handler {
 		r.Post("/templates/scan", srv.ScanTemplates)
 		r.Get("/templates/{code}", srv.GetTemplate)
 		r.Delete("/templates/{code}", srv.DeleteTemplate)
+		r.Get("/devices", srv.ListDevices)
+		r.Post("/devices", srv.SaveDevice)
+		r.Get("/devices/{id}", srv.GetDevice)
+		r.Delete("/devices/{id}", srv.DeleteDevice)
+		r.Get("/runtime/devices", srv.ListRuntimeDevices)
+		r.Get("/runtime/devices/{id}", srv.GetRuntimeDevice)
 	})
 
 	// 静态资源（嵌入式）
@@ -43,11 +48,4 @@ func NewRouter(srv *api.Server) http.Handler {
 	})
 
 	return r
-}
-
-func requestLog(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 简单请求日志，避免引入额外依赖
-		next.ServeHTTP(w, r)
-	})
 }

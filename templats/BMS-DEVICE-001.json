@@ -14,21 +14,21 @@
             "type": "enum",
             "description": [
                 {
-                    "name": "离线",
+                    "enum": 0,
                     "key": "offline",
-                    "status": 0,
+                    "name": "离线",
                     "value": 0
                 },
                 {
-                    "name": "在线",
+                    "enum": 1,
                     "key": "online",
-                    "status": 1,
+                    "name": "在线",
                     "value": 1
                 },
                 {
-                    "name": "未知",
+                    "enum": -1,
                     "key": "unknown",
-                    "status": -1,
+                    "name": "未知",
                     "value": 2
                 }
             ],
