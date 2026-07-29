@@ -3,7 +3,10 @@ package web
 import (
 	"embed"
 	"io/fs"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
+	"time"
 
 	"thingsmodel/internal/api"
 
@@ -19,7 +22,8 @@ func NewRouter(srv *api.Server) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Recoverer)
+	r.Use(accessLog)
+	r.Use(recoverer)
 
 	// REST API
 	r.Route("/api", func(r chi.Router) {
@@ -48,4 +52,37 @@ func NewRouter(srv *api.Server) http.Handler {
 	})
 
 	return r
+}
+
+func accessLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		writer := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(writer, r)
+		slog.Info("HTTP 请求完成",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", writer.Status(),
+			"bytes", writer.BytesWritten(),
+			"duration", time.Since(started),
+			"request_id", middleware.GetReqID(r.Context()),
+			"remote_addr", r.RemoteAddr,
+		)
+	})
+}
+
+func recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				slog.Error("HTTP 请求发生 panic",
+					"error", recovered,
+					"request_id", middleware.GetReqID(r.Context()),
+					"stack", string(debug.Stack()),
+				)
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }

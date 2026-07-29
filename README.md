@@ -14,6 +14,29 @@ go run .
 go run . -db .\data\thingsmodel.db -templates .\templats
 ```
 
+## 日志
+
+日志由根目录的 [config.yaml](config.yaml) 管理。默认输出到终端和 `logs/thingsmodel.log`；文件到达 `max_size`（MB）时自动轮转，`max_backups`、`max_age` 与 `compress` 分别控制备份数量、保留天数和压缩。
+
+```yaml
+logger:
+	level: "debug" # debug、info、warn 或 error
+	console: true
+	file: true
+	file_config:
+		filename: "logs/thingsmodel.log"
+		max_size: 10
+		max_backups: 5
+		max_age: 30
+		compress: true
+```
+
+可使用 `-config` 指定其他配置文件：
+
+```powershell
+go run . -config .\config.yaml
+```
+
 ## 配置层次
 
 - **模板管理**：定义可复用的属性、服务与告警语义，模板仍保存在 `templats/` JSON 文件中。
