@@ -1,4 +1,4 @@
-// Package logging configures application logging from YAML.
+// Package logging configures application logging from platform settings.
 package logging
 
 import (
@@ -11,29 +11,28 @@ import (
 	"strings"
 
 	"gopkg.in/natefinch/lumberjack.v2"
-	"gopkg.in/yaml.v3"
 )
 
-// Config describes the logger section of config.yaml.
+// Config describes the logger section of the platform settings.
 type Config struct {
-	Logger LoggerConfig `yaml:"logger"`
+	Logger LoggerConfig `json:"logger"`
 }
 
 // LoggerConfig controls log level and destinations.
 type LoggerConfig struct {
-	Level      string     `yaml:"level"`
-	Console    bool       `yaml:"console"`
-	File       bool       `yaml:"file"`
-	FileConfig FileConfig `yaml:"file_config"`
+	Level      string     `json:"level"`
+	Console    bool       `json:"console"`
+	File       bool       `json:"file"`
+	FileConfig FileConfig `json:"fileConfig"`
 }
 
 // FileConfig controls rotating file output. Size is measured in megabytes.
 type FileConfig struct {
-	Filename   string `yaml:"filename"`
-	MaxSize    int    `yaml:"max_size"`
-	MaxBackups int    `yaml:"max_backups"`
-	MaxAge     int    `yaml:"max_age"`
-	Compress   bool   `yaml:"compress"`
+	Filename   string `json:"filename"`
+	MaxSize    int    `json:"maxSize"`
+	MaxBackups int    `json:"maxBackups"`
+	MaxAge     int    `json:"maxAge"`
+	Compress   bool   `json:"compress"`
 }
 
 // DefaultConfig returns the built-in logging configuration.
@@ -50,41 +49,6 @@ func DefaultConfig() Config {
 			Compress:   true,
 		},
 	}}
-}
-
-// Load reads and validates the YAML configuration at path.
-func Load(path string) (Config, error) {
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("读取日志配置 %s: %w", filepath.Clean(path), err)
-	}
-
-	config := DefaultConfig()
-	if err := yaml.Unmarshal(contents, &config); err != nil {
-		return Config{}, fmt.Errorf("解析日志配置 %s: %w", filepath.Clean(path), err)
-	}
-	if err := config.Validate(); err != nil {
-		return Config{}, err
-	}
-	return config, nil
-}
-
-// Save validates and writes the configuration as YAML.
-func Save(path string, config Config) error {
-	if err := config.Validate(); err != nil {
-		return err
-	}
-	contents, err := yaml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("序列化日志配置: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("创建日志配置目录: %w", err)
-	}
-	if err := os.WriteFile(path, contents, 0644); err != nil {
-		return fmt.Errorf("写入日志配置 %s: %w", filepath.Clean(path), err)
-	}
-	return nil
 }
 
 // Validate checks that the logging configuration is usable.
@@ -113,6 +77,14 @@ func (config Config) Validate() error {
 
 // New creates a structured logger and an optional file closer for the configured destinations.
 func New(config Config) (*slog.Logger, io.Closer, error) {
+	handler, closer, err := newHandler(config)
+	if err != nil {
+		return nil, nil, err
+	}
+	return slog.New(handler), closer, nil
+}
+
+func newHandler(config Config) (slog.Handler, io.Closer, error) {
 	if err := config.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -136,7 +108,7 @@ func New(config Config) (*slog.Logger, io.Closer, error) {
 		}
 		writers = append(writers, fileWriter)
 	}
-	return slog.New(slog.NewTextHandler(io.MultiWriter(writers...), &slog.HandlerOptions{Level: level})), fileWriter, nil
+	return slog.NewTextHandler(io.MultiWriter(writers...), &slog.HandlerOptions{Level: level}), fileWriter, nil
 }
 
 func parseLevel(value string) (slog.Level, error) {

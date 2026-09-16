@@ -53,6 +53,9 @@ const state = {
   runtimeDevices: [],
   runtimeSelectedId: '',
   runtimeTab: 'properties',
+  sources: [],
+  settings: null,
+  systemInfo: null,
 };
 
 // 创建空白草稿

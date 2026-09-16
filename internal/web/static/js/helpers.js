@@ -21,6 +21,7 @@ function switchSection(key) {
   if (key === 'templates') renderTemplateList();
   if (key === 'devices') loadDevices().then(renderDeviceList);
   if (key === 'runtime') loadRuntimeDevices().then(renderRuntimeDevices);
+  if (key === 'settings') Promise.all([loadPlatformSettings(), loadSystemInfo()]).then(renderSettings);
 }
 
 // 触发文件下载（用于导出 JSON）

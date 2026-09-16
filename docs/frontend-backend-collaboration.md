@@ -28,7 +28,7 @@
 | 层 | 目录 | 职责 | 对外暴露 |
 |----|------|------|----------|
 | 入口 | `main.go` | 装配、信号监听、优雅退出 | — |
-| 配置 | `internal/config` | 加载 `configs/app.yaml` | `config.App` |
+| 配置 | `internal/config` | 平台设置类型与校验（持久化在 SQLite） | `config.App` |
 | 路由 | `internal/web` | chi 路由、静态分发、请求日志 | `Router(...)` |
 | API | `internal/api` | REST 处理器、引擎回调 | `api.Server` |
 | 存储 | `internal/store` | GORM 模型与迁移 | `store.Open(...)` |
@@ -766,7 +766,6 @@ async function delete{Module}(id) {
 | gorm.io/gorm | v1.25.12 | ORM |
 | gorm.io/datatypes | v1.2.1 | JSON 字段类型 |
 | glebarez/sqlite | v1.11.0 | 纯 Go SQLite（无 CGO） |
-| gopkg.in/yaml.v3 | v3.0.1 | YAML 配置 |
 | gopkg.in/natefinch/lumberjack.v2 | v2.2.1 | 日志滚动 |
 | go.bug.st/serial | v1.6.2 | 串口通信 |
 | Bootstrap | 5.3.2 | 前端 CSS（CDN） |

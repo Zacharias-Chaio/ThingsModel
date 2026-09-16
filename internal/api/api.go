@@ -4,17 +4,20 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"thingsmodel/internal/config"
+	"thingsmodel/internal/logging"
 	"thingsmodel/internal/runtime"
 	"thingsmodel/internal/store"
 
 	"gorm.io/gorm"
 )
-
 // Server REST 处理器容器，依赖注入 TemplateStore。
 type Server struct {
 	Templates *store.TemplateStore
 	DB        *gorm.DB
 	Runtime   RuntimeFacade
+	Settings  *store.SettingsStore
+	Logger    *logging.Runtime
 }
 
 // RuntimeFacade keeps API handlers independent from a future collection engine.
@@ -23,6 +26,16 @@ type RuntimeFacade interface {
 	Remove(id string)
 	Snapshot() []runtime.DeviceStatus
 	Get(id string) (runtime.DeviceStatus, bool)
+}
+
+// RuntimeAdmin exposes the restartable message-bus lifecycle without coupling handlers to its implementation.
+type RuntimeAdmin interface {
+	ReloadBus(config.App) error
+	Restart(config.App) bool
+}
+
+type SourceFacade interface {
+	Sources() []runtime.SourceDevice
 }
 
 // ok 统一成功响应：{"code":0,"data":<any>}

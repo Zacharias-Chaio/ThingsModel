@@ -27,6 +27,10 @@ func NewRouter(srv *api.Server) http.Handler {
 
 	// REST API
 	r.Route("/api", func(r chi.Router) {
+		r.Get("/settings", srv.GetSettings)
+		r.Post("/settings", srv.SaveSettings)
+		r.Get("/system-info", srv.GetSystemInfo)
+		r.Post("/restart", srv.Restart)
 		r.Get("/templates", srv.ListTemplates)
 		r.Post("/templates", srv.SaveTemplate)
 		r.Post("/templates/scan", srv.ScanTemplates)
@@ -38,18 +42,13 @@ func NewRouter(srv *api.Server) http.Handler {
 		r.Delete("/devices/{id}", srv.DeleteDevice)
 		r.Get("/runtime/devices", srv.ListRuntimeDevices)
 		r.Get("/runtime/devices/{id}", srv.GetRuntimeDevice)
+		r.Get("/runtime/sources", srv.ListSources)
 	})
 
-	// 静态资源（嵌入式）
+	// 静态资源（嵌入式），"/*" 同时覆盖根路径
 	staticSub, _ := fs.Sub(staticFS, "static")
 	fileServer := http.FileServer(http.FS(staticSub))
 	r.Handle("/*", fileServer)
-
-	// 根路径回退到 index.html（单页应用）
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = "/"
-		fileServer.ServeHTTP(w, r)
-	})
 
 	return r
 }

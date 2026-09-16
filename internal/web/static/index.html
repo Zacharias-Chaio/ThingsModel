@@ -57,6 +57,9 @@
     <button class="sidebar-item" id="nav-runtime" onclick="switchSection('runtime')">
       <i class="bi bi-activity"></i><span>运行数据</span>
     </button>
+    <button class="sidebar-item" id="nav-settings" onclick="switchSection('settings')">
+      <i class="bi bi-gear"></i><span>平台设置</span>
+    </button>
     <button class="sidebar-item disabled" id="nav-aggregation" onclick="switchSection('aggregation')">
       <i class="bi bi-diagram-3"></i><span>设备聚合</span>
     </button>
@@ -142,16 +145,29 @@
       <section class="app-section d-none" id="section-runtime">
         <div class="section-header">
           <h4><i class="bi bi-activity me-2" style="color:var(--primary)"></i>运行数据</h4>
-          <div class="sub">查看已加载设备的属性、服务和告警状态。真实数据将在设备采集端接入后显示。</div>
+          <div class="sub">查看 NATS 上游数据经清洗、标准化和聚合后的属性、服务与告警状态。</div>
         </div>
         <div class="landing-toolbar">
-          <span class="count-pill"><i class="bi bi-info-circle me-1"></i>当前未接入实时采集引擎</span>
+          <span class="count-pill"><i class="bi bi-broadcast-pin me-1"></i>实时数据由已订阅的上游 Gateway 提供</span>
           <button class="btn btn-outline-secondary btn-sm" onclick="loadRuntimeDevices().then(renderRuntimeDevices)"><i class="bi bi-arrow-clockwise me-1"></i>刷新</button>
         </div>
         <div class="runtime-layout">
           <div class="runtime-device-list" id="runtime-device-list"></div>
           <div class="runtime-detail" id="runtime-detail"></div>
         </div>
+      </section>
+
+      <!-- ===== Section: 平台设置 ===== -->
+      <section class="app-section d-none" id="section-settings">
+        <div class="section-header">
+          <h4><i class="bi bi-gear me-2" style="color:var(--primary)"></i>平台设置</h4>
+          <div class="sub">管理软件标识、日志、NATS 连接和上游网关设备订阅。</div>
+        </div>
+        <div class="landing-toolbar">
+          <span class="count-pill"><i class="bi bi-arrow-repeat me-1"></i>保存后日志与消息总线立即热加载</span>
+          <button class="btn btn-primary" id="settings-save" onclick="saveSettings()"><i class="bi bi-check-lg me-1"></i>保存设置</button>
+        </div>
+        <div class="settings-grid" id="settings-cards"></div>
       </section>
 
       <!-- ===== Section: 设备聚合（占位）===== -->
@@ -353,6 +369,7 @@
 <script src="/js/templates.js"></script>
 <script src="/js/devices.js"></script>
 <script src="/js/runtime.js"></script>
+<script src="/js/settings.js"></script>
 <script src="/js/main.js"></script>
 </body>
 </html>

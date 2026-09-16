@@ -9,6 +9,15 @@ async function loadDevices() {
   }
 }
 
+async function loadSources() {
+  try {
+    state.sources = await RuntimeAPI.sources() || [];
+  } catch (e) {
+    state.sources = [];
+    toast(e.message, 'error');
+  }
+}
+
 function renderDeviceList() {
   const grid = document.getElementById('device-grid');
   if (!grid) return;
@@ -76,6 +85,7 @@ function eventConfigured(event) {
 
 async function newDevice() {
   if (!state.templates.length) await loadTemplates();
+  await loadSources();
   if (!state.templates.length) {
     toast('请先创建物模型模板', 'error');
     switchSection('templates');
@@ -90,7 +100,8 @@ async function newDevice() {
 
 async function editDevice(id) {
   try {
-    state.deviceDraft = normalizeDeviceDraft(await DevicesAPI.get(id));
+    const result = await Promise.all([DevicesAPI.get(id), loadSources()]);
+    state.deviceDraft = normalizeDeviceDraft(result[0]);
     state.deviceStep = 0;
     state.isEditingDevice = true;
     switchSection('device-wizard');
@@ -181,7 +192,23 @@ function devicePropertiesBody() {
 }
 
 function bindingSourceRow(source, updatePrefix, removeCall) {
-  return `<div class="binding-source-row"><input class="form-control form-control-sm" value="${escapeHtml(source.deviceId || '')}" placeholder="实际设备 ID" oninput="${updatePrefix},'deviceId',this.value)"><input class="form-control form-control-sm" value="${escapeHtml(source.propertyId || '')}" placeholder="实际属性 ID" oninput="${updatePrefix},'propertyId',this.value)"><button class="btn btn-outline-danger btn-sm" onclick="${removeCall}"><i class="bi bi-x-lg"></i></button></div>`;
+  return `<div class="binding-source-row"><select class="form-select form-select-sm" onchange="${updatePrefix},'deviceId',this.value)">${sourceDeviceOptions(source.deviceId)}</select><select class="form-select form-select-sm" onchange="${updatePrefix},'propertyId',this.value)">${sourcePropertyOptions(source.deviceId, source.propertyId)}</select><button class="btn btn-outline-danger btn-sm" onclick="${removeCall}" title="移除来源"><i class="bi bi-x-lg"></i></button></div>`;
+}
+
+function sourceDeviceOptions(selected) {
+  const known = state.sources.some(source => source.id === selected);
+  const options = state.sources.map(source => `<option value="${escapeHtml(source.id)}" ${source.id === selected ? 'selected' : ''}>${escapeHtml(source.gatewayId)} / 通道 ${source.channelIndex} / 设备 ${source.deviceIndex} · ${escapeHtml(source.deviceName || source.modelName || source.id)}</option>`).join('');
+  const unavailable = selected && !known ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}（暂未发现）</option>` : '';
+  return `<option value="">请选择上游设备</option>${unavailable}${options}`;
+}
+
+function sourcePropertyOptions(deviceID, selected) {
+  const source = state.sources.find(item => item.id === deviceID);
+  const properties = source ? source.properties || [] : [];
+  const known = properties.some(property => property.id === selected);
+  const options = properties.map(property => `<option value="${escapeHtml(property.id)}" ${property.id === selected ? 'selected' : ''}>${escapeHtml(property.name || property.id)} (${escapeHtml(property.id)})</option>`).join('');
+  const unavailable = selected && !known ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}（暂未发现）</option>` : '';
+  return `<option value="">请选择上游属性</option>${unavailable}${options}`;
 }
 
 function setPropertyBindingMethod(index, method) {
@@ -205,19 +232,29 @@ function removePropertySource(index, sourceIndex) {
 }
 
 function updatePropertySource(index, sourceIndex, field, value) {
-  state.deviceDraft.properties[index].binding.sources[sourceIndex][field] = value;
+  const source = state.deviceDraft.properties[index].binding.sources[sourceIndex];
+  source[field] = value;
+  if (field === 'deviceId') {
+    source.propertyId = '';
+    renderDeviceWizard();
+  }
 }
 
 function deviceMethodsBody() {
   const rows = state.deviceDraft.methods.map((method, index) => {
     const binding = method.binding || {};
-    return `<tr><td><strong>${escapeHtml(method.name)}</strong><div><code>${escapeHtml(method.key)}</code></div></td><td>${typeBadge(method.type)}</td><td><input class="form-control form-control-sm" value="${escapeHtml(binding.deviceId || '')}" placeholder="实际设备 ID" oninput="updateMethodBinding(${index},'deviceId',this.value)"></td><td><input class="form-control form-control-sm" value="${escapeHtml(binding.propertyId || '')}" placeholder="实际属性 ID" oninput="updateMethodBinding(${index},'propertyId',this.value)"></td></tr>`;
+    return `<tr><td><strong>${escapeHtml(method.name)}</strong><div><code>${escapeHtml(method.key)}</code></div></td><td>${typeBadge(method.type)}</td><td><select class="form-select form-select-sm" onchange="updateMethodBinding(${index},'deviceId',this.value)">${sourceDeviceOptions(binding.deviceId)}</select></td><td><select class="form-select form-select-sm" onchange="updateMethodBinding(${index},'propertyId',this.value)">${sourcePropertyOptions(binding.deviceId, binding.propertyId)}</select></td></tr>`;
   }).join('');
   return `<div class="info-banner"><i class="bi bi-gear me-2" style="color:var(--primary)"></i><span class="text-muted">每个服务最多绑定一个实际下发点位。留空表示暂不启用该服务。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>模板服务</th><th>类型</th><th>实际设备 ID</th><th>实际属性 ID</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="text-center text-muted py-4">模板没有服务</td></tr>'}</tbody></table></div>`;
 }
 
 function updateMethodBinding(index, field, value) {
-  state.deviceDraft.methods[index].binding[field] = value;
+  const binding = state.deviceDraft.methods[index].binding;
+  binding[field] = value;
+  if (field === 'deviceId') {
+    binding.propertyId = '';
+    renderDeviceWizard();
+  }
 }
 
 function deviceEventsBody() {
@@ -227,7 +264,14 @@ function deviceEventsBody() {
 
 function addEventSource(index) { state.deviceDraft.events[index].binding.push({ deviceId: '', propertyId: '' }); renderDeviceWizard(); }
 function removeEventSource(index, sourceIndex) { state.deviceDraft.events[index].binding.splice(sourceIndex, 1); renderDeviceWizard(); }
-function updateEventSource(index, sourceIndex, field, value) { state.deviceDraft.events[index].binding[sourceIndex][field] = value; }
+function updateEventSource(index, sourceIndex, field, value) {
+  const source = state.deviceDraft.events[index].binding[sourceIndex];
+  source[field] = value;
+  if (field === 'deviceId') {
+    source.propertyId = '';
+    renderDeviceWizard();
+  }
+}
 
 function devicePreviewBody() {
   const progress = deviceBindingProgress(state.deviceDraft);

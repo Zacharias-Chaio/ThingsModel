@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -23,23 +22,7 @@ func main() {
 	addr := flag.String("addr", ":8090", "HTTP 监听地址")
 	tplDir := flag.String("templates", "templats", "模板目录（相对或绝对路径）")
 	dbPath := flag.String("db", "data/thingsmodel.db", "SQLite 数据库文件（相对或绝对路径）")
-	configPath := flag.String("config", "config.yaml", "日志配置文件（相对或绝对路径）")
 	flag.Parse()
-
-	config, err := logging.Load(*configPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "加载日志配置失败: %v\n", err)
-		os.Exit(1)
-	}
-	logger, logCloser, err := logging.New(config)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "初始化日志失败: %v\n", err)
-		os.Exit(1)
-	}
-	if logCloser != nil {
-		defer logCloser.Close()
-	}
-	slog.SetDefault(logger)
 
 	absTplDir, err := filepath.Abs(*tplDir)
 	if err != nil {
@@ -56,6 +39,8 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(absDBPath), 0755); err != nil {
 		fatal("创建数据库目录失败", err)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	db, err := store.Open(absDBPath)
 	if err != nil {
 		fatal("初始化数据库失败", err)
@@ -66,6 +51,16 @@ func main() {
 	}
 	defer sqlDB.Close()
 
+	settings, err := store.OpenSettings(db)
+	if err != nil {
+		fatal("加载平台配置失败", err)
+	}
+	logRuntime, err := logging.NewRuntime(logging.Config{Logger: settings.Get().Logger})
+	if err != nil {
+		fatal("初始化日志失败", err)
+	}
+	defer logRuntime.Close()
+
 	// 启动时扫描加载所有模板
 	tplStore := store.NewTemplateStore(absTplDir)
 	if n, err := tplStore.Scan(); err != nil {
@@ -74,8 +69,12 @@ func main() {
 		slog.Info("已加载物模型模板", "count", n, "directory", absTplDir)
 	}
 
-	deviceRuntime := runtime.NewRegistry()
-	srv := &api.Server{Templates: tplStore, DB: db, Runtime: deviceRuntime}
+	deviceRuntime, err := runtime.NewManager(ctx, settings.Get())
+	if err != nil {
+		fatal("初始化物模型运行时失败", err)
+	}
+	defer deviceRuntime.Stop()
+	srv := &api.Server{Templates: tplStore, DB: db, Runtime: deviceRuntime, Settings: settings, Logger: logRuntime}
 	if err := srv.ReloadRuntime(); err != nil {
 		fatal("加载设备配置失败", err)
 	}
@@ -97,9 +96,7 @@ func main() {
 		}
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
+	<-ctx.Done()
 	slog.Info("收到退出信号，正在关闭服务")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

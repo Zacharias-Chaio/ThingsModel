@@ -14,7 +14,7 @@ func Open(path string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库失败 %s: %w", filepath.Clean(path), err)
 	}
-	if err := db.AutoMigrate(&Device{}); err != nil {
+	if err := db.AutoMigrate(&Device{}, &Setting{}); err != nil {
 		return nil, fmt.Errorf("迁移数据库失败: %w", err)
 	}
 	return db, nil

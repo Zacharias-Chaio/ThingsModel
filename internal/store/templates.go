@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -42,7 +43,7 @@ func (s *TemplateStore) Scan() (int, error) {
 		t, err := loadTemplateFile(path)
 		if err != nil {
 			// 单个文件加载失败不中断整体扫描，记录后继续
-			fmt.Printf("[store] 跳过模板文件 %s: %v\n", e.Name(), err)
+			slog.Warn("跳过模板文件", "file", e.Name(), "error", err)
 			continue
 		}
 		if t.Code == "" {
@@ -90,9 +91,8 @@ func (s *TemplateStore) Get(code string) (*Template, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	// 返回副本，避免外部修改内部状态
-	cp := *t
-	return &cp, nil
+	// 返回深拷贝，避免外部修改切片字段影响内存存储
+	return cloneTemplate(t), nil
 }
 
 // Save 保存模板：写文件 + 更新内存索引。Code 为空返回错误。

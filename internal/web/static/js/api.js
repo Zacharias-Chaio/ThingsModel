@@ -41,4 +41,12 @@ const DevicesAPI = {
 const RuntimeAPI = {
   list: ()     => apiGet('/runtime/devices'),
   get:  (id)   => apiGet('/runtime/devices/' + encodeURIComponent(id)),
+  sources: ()  => apiGet('/runtime/sources'),
+};
+
+const SettingsAPI = {
+  get:    ()           => apiGet('/settings'),
+  save:   (settings)   => apiPost('/settings', settings),
+  system: ()           => apiGet('/system-info'),
+  restart: ()          => apiPost('/restart'),
 };
