@@ -11,7 +11,7 @@
             "key": "comm",
             "default": 0,
             "unit": "",
-            "type": "enum",
+            "type": "status",
             "description": [
                 {
                     "enum": 0,
@@ -26,8 +26,8 @@
                     "value": 1
                 },
                 {
-                    "enum": -1,
-                    "key": "unknow",
+                    "enum": -999,
+                    "key": "unknown",
                     "name": "未知",
                     "value": -1
                 }
@@ -44,14 +44,16 @@
             "name": "开关机",
             "key": "onoff",
             "desc": "",
-            "type": "enum",
+            "type": "status",
             "validation": {
                 "min": 0,
                 "max": 0
             },
             "descriptions": null,
             "binding": {
-                "deviceId": "",
+                "gatewayId": "",
+                "channelId": -1,
+                "deviceId": -1,
                 "propertyId": ""
             }
         }
@@ -65,8 +67,7 @@
             "level": 2,
             "type": "equal",
             "threshold": 1,
-            "time": 0,
-            "binding": null
+            "time": 0
         }
     ]
 }

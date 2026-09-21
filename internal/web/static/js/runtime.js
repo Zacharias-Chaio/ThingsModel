@@ -36,8 +36,55 @@ function renderRuntimeDetail() {
 }
 
 function runtimeProperties(rows) { return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>属性</th><th>当前值</th><th>单位</th><th>质量</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${runtimeValue(row.value)}</td><td>${escapeHtml(row.unit || '-')}</td><td>${runtimeStatusBadge(row.quality)}</td></tr>`).join('') || '<tr><td colspan="4" class="text-center text-muted py-4">暂无属性</td></tr>'}</tbody></table></div>`; }
-function runtimeMethods(rows) { return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>服务</th><th>状态</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${runtimeStatusBadge(row.status)}</td></tr>`).join('') || '<tr><td colspan="2" class="text-center text-muted py-4">暂无服务</td></tr>'}</tbody></table></div>`; }
-function runtimeEvents(rows) { return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>告警</th><th>级别</th><th>状态</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td><span class="badge-pill ${(EVENT_LEVELS[row.level] || EVENT_LEVELS[0]).cls}">${(EVENT_LEVELS[row.level] || EVENT_LEVELS[0]).name}</span></td><td>${runtimeStatusBadge(row.status)}</td></tr>`).join('') || '<tr><td colspan="3" class="text-center text-muted py-4">暂无告警</td></tr>'}</tbody></table></div>`; }
+function runtimeMethods(rows) {
+  return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>服务</th><th>状态</th><th>工程值下发</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${runtimeStatusBadge(row.status)}</td><td>${methodInvokeControl(row)}</td></tr>`).join('') || '<tr><td colspan="3" class="text-center text-muted py-4">暂无服务</td></tr>'}</tbody></table></div>`;
+}
+
+// 服务下发控件：number 填写工程值（带范围提示），status 选择状态；未绑定的服务不提供控件。
+// 下发链路（API 端点 + 网关命令契约）下一阶段接入。
+function methodInvokeControl(row) {
+  if (row.status !== 'configured') return '<span class="text-muted">—</span>';
+  const key = escapeHtml(row.key);
+  const btn = `<button class="btn btn-primary btn-sm" onclick="invokeMethod('${key}')"><i class="bi bi-send"></i>下发</button>`;
+  if (row.type === 'number') {
+    const v = row.validation || {};
+    const hint = v.min < v.max ? ` placeholder="${v.min} ~ ${v.max}"` : '';
+    return `<div class="invoke-control"><input type="number" step="any" class="form-control form-control-sm" id="invoke-${key}"${hint}>${btn}</div>`;
+  }
+  if (row.type === 'status' && (row.descriptions || []).length) {
+    const options = row.descriptions.map((d, i) => `<option value="${i}">${escapeHtml(d.name)}</option>`).join('');
+    return `<div class="invoke-control"><select class="form-select form-select-sm" id="invoke-${key}">${options}</select>${btn}</div>`;
+  }
+  return '<span class="text-muted">—</span>';
+}
+
+// 读取并校验下发输入；下发链路（API 端点 + 网关命令契约）下一阶段接入。
+function invokeMethod(key) {
+  const device = state.runtimeDevices.find(item => item.id === state.runtimeSelectedId);
+  const method = device && (device.methods || []).find(m => m.key === key);
+  if (!method) return;
+  const el = document.getElementById('invoke-' + key);
+  if (!el) return;
+  if (method.type === 'number') {
+    const value = parseFloat(el.value);
+    if (el.value === '' || isNaN(value)) { toast('请输入数字工程值', 'error'); return; }
+    const v = method.validation;
+    if (v && v.min < v.max && (value < v.min || value > v.max)) { toast(`工程值需在 ${v.min} ~ ${v.max} 范围内`, 'error'); return; }
+    toast(`下发链路下一阶段接入：${method.name} = ${value}`);
+  } else {
+    const desc = (method.descriptions || [])[parseInt(el.value, 10)];
+    if (!desc) { toast('请选择状态值', 'error'); return; }
+    toast(`下发链路下一阶段接入：${method.name} = ${desc.name}（工程值 ${desc.value}）`);
+  }
+}
+function runtimeEvents(rows) {
+  return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>检测点位</th><th>点位名称</th><th>当前工程值</th><th>告警规则简要</th><th>级别</th><th>状态</th></tr></thead><tbody>${(rows || []).map(row => {
+    const rulesHtml = (row.rules || []).map(rule => `<div class="alarm-rule-brief">${escapeHtml(rule)}</div>`).join('');
+    const methodChip = row.method === 'and' ? '<span class="method-chip">全部成立</span>' : row.method === 'or' ? '<span class="method-chip">任一成立</span>' : '';
+    const level = EVENT_LEVELS[row.level] || EVENT_LEVELS[0];
+    return `<tr><td><strong>${escapeHtml(row.point || '-')}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${row.pointName ? escapeHtml(row.pointName) : '-'}</td><td>${runtimeValue(row.value)}</td><td>${rulesHtml ? rulesHtml + methodChip : '<span class="text-muted">-</span>'}</td><td><span class="badge-pill ${level.cls}">${level.name}</span></td><td>${runtimeStatusBadge(row.status)}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="text-center text-muted py-4">暂无告警</td></tr>'}</tbody></table></div>`;
+}
 
 function runtimeStatusBadge(status) {
   const labels = { available: '可用', degraded: '降级', unavailable: '未接入', unbound: '未绑定', invalid: '无效', stale: '过期', unmapped: '未映射', configured: '已配置', inactive: '未触发', pending: '等待触发', active: '已触发', good: '正常' };

@@ -28,7 +28,6 @@ const TemplatesAPI = {
   get:    (code)         => apiGet('/templates/' + encodeURIComponent(code)),
   save:   (template)     => apiPost('/templates', template),
   remove: (code)         => apiDelete('/templates/' + encodeURIComponent(code)),
-  scan:   ()             => apiPost('/templates/scan'),
 };
 
 const DevicesAPI = {
@@ -39,9 +38,8 @@ const DevicesAPI = {
 };
 
 const RuntimeAPI = {
-  list: ()     => apiGet('/runtime/devices'),
-  get:  (id)   => apiGet('/runtime/devices/' + encodeURIComponent(id)),
-  sources: ()  => apiGet('/runtime/sources'),
+  list: ()    => apiGet('/runtime/devices'),
+  sources: () => apiGet('/runtime/sources'),
 };
 
 const SettingsAPI = {

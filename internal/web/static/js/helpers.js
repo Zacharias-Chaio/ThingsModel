@@ -54,6 +54,3 @@ function toast(msg, type) {
     alert(msg);
   }
 }
-
-// 校验字符串非空
-function notEmpty(v) { return v != null && String(v).trim() !== ''; }

@@ -11,6 +11,14 @@
 # Test binary, built with `go test -c`
 *.test
 
+# 测试源码文件
+*_test.go
+*.test.js
+*.spec.js
+*.test.mjs
+*.spec.mjs
+coverage/
+
 # Code coverage profiles and other test artifacts
 *.out
 coverage.*

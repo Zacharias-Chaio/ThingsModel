@@ -73,9 +73,6 @@ func (s *Server) SaveTemplate(w http.ResponseWriter, r *http.Request) {
 	for i := range t.Methods {
 		t.Methods[i].Binding = store.MethodBinding{}
 	}
-	for i := range t.Events {
-		t.Events[i].Binding = nil
-	}
 	if err := s.Templates.Save(&t); err != nil {
 		fail(w, http.StatusInternalServerError, err.Error())
 		return
@@ -83,7 +80,7 @@ func (s *Server) SaveTemplate(w http.ResponseWriter, r *http.Request) {
 	ok(w, t)
 }
 
-// validateTemplate 校验模板结构：key/number 唯一性、类型合法性、enum 必须有描述。
+// validateTemplate 校验模板结构：key/number 唯一性、类型合法性、status 属性必须有状态值描述。
 func validateTemplate(t *store.Template) error {
 	propKeys := make(map[string]bool)
 	propNumbers := make(map[int]bool)
@@ -99,11 +96,11 @@ func validateTemplate(t *store.Template) error {
 		}
 		propKeys[p.Key] = true
 		propNumbers[p.Number] = true
-		if p.Type != "enum" && p.Type != "number" {
-			return fmt.Errorf("属性 %s 类型无效: %s（只允许 enum 或 number）", p.Key, p.Type)
+		if p.Type != "status" && p.Type != "number" {
+			return fmt.Errorf("属性 %s 类型无效: %s（只允许 status 或 number）", p.Key, p.Type)
 		}
-		if p.Type == "enum" && len(p.Description) == 0 {
-			return fmt.Errorf("属性 %s 为 enum 类型但缺少枚举描述", p.Key)
+		if p.Type == "status" && len(p.Description) == 0 {
+			return fmt.Errorf("属性 %s 为 status 类型但缺少状态值描述", p.Key)
 		}
 	}
 	mtdKeys := make(map[string]bool)
@@ -120,11 +117,25 @@ func validateTemplate(t *store.Template) error {
 		}
 		mtdKeys[m.Key] = true
 		mtdNumbers[m.Number] = true
-		if m.Type != "enum" && m.Type != "number" {
-			return fmt.Errorf("方法 %s 类型无效: %s（只允许 enum 或 number）", m.Key, m.Type)
+		if m.Type != "status" && m.Type != "number" {
+			return fmt.Errorf("服务 %s 类型无效: %s（只允许 status 或 number）", m.Key, m.Type)
 		}
-		if m.Type == "enum" && len(m.Descriptions) == 0 {
-			return fmt.Errorf("方法 %s 为 enum 类型但缺少枚举描述", m.Key)
+		if m.Type == "status" && len(m.Descriptions) == 0 {
+			return fmt.Errorf("服务 %s 为 status 类型但缺少状态值描述", m.Key)
+		}
+		if m.Type == "status" {
+			// 状态类型服务：工程值必填且唯一
+			seenValues := make(map[string]bool, len(m.Descriptions))
+			for _, d := range m.Descriptions {
+				if d.Value == nil {
+					return fmt.Errorf("服务 %s 状态值 %d 缺少工程值", m.Key, d.Enum)
+				}
+				valueKey := fmt.Sprint(d.Value)
+				if seenValues[valueKey] {
+					return fmt.Errorf("服务 %s 工程值重复: %v", m.Key, d.Value)
+				}
+				seenValues[valueKey] = true
+			}
 		}
 	}
 	evtKeys := make(map[string]bool)
@@ -167,14 +178,4 @@ func (s *Server) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, map[string]string{"code": code})
-}
-
-// ScanTemplates POST /api/templates/scan — 重新扫描 templats 目录。
-func (s *Server) ScanTemplates(w http.ResponseWriter, r *http.Request) {
-	n, err := s.Templates.Scan()
-	if err != nil {
-		fail(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	ok(w, map[string]int{"count": n})
 }

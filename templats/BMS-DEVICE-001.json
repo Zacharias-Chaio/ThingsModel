@@ -11,7 +11,7 @@
             "key": "online",
             "default": 0,
             "unit": "",
-            "type": "enum",
+            "type": "status",
             "description": [
                 {
                     "enum": 0,
@@ -26,7 +26,7 @@
                     "value": 1
                 },
                 {
-                    "enum": -1,
+                    "enum": -999,
                     "key": "unknown",
                     "name": "未知",
                     "value": 2
@@ -36,7 +36,9 @@
                 "method": "EPT",
                 "sources": [
                     {
-                        "deviceId": "",
+                        "gatewayId": "",
+                        "channelId": -1,
+                        "deviceId": -1,
                         "propertyId": ""
                     }
                 ]
@@ -53,8 +55,7 @@
             "level": 2,
             "type": "equal",
             "threshold": 1,
-            "time": 2,
-            "binding": []
+            "time": 2
         }
     ]
 }

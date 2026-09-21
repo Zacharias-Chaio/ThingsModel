@@ -69,9 +69,7 @@ function newTemplate() {
   state.draft = emptyDraft();
   state.isEditing = false;
   state.currentStep = 0;
-  switchSection('wizard');
-  renderStepper();
-  renderStep();
+  enterTemplateWizard();
 }
 
 // ===== 编辑现有模板 =====
@@ -85,12 +83,27 @@ async function editTemplate(code) {
     if (!state.draft.events) state.draft.events = [];
     state.isEditing = true;
     state.currentStep = 0;
-    switchSection('wizard');
-    renderStepper();
-    renderStep();
+    enterTemplateWizard();
   } catch (e) {
     toast(e.message, 'error');
   }
+}
+
+// 进入模板向导：切换区块并刷新标题栏
+function enterTemplateWizard() {
+  switchSection('wizard');
+  document.getElementById('tpl-wizard-title').textContent = state.draft.name || '新增物模型模板';
+  renderStepper();
+  renderStep();
+}
+
+// ===== 返回模板列表 =====
+function backToTemplateList() {
+  // 返回列表只放弃当前编辑缓冲，不持久化；只有保存按钮才会写入 templats 目录
+  state.draft = emptyDraft();
+  state.isEditing = false;
+  state.currentStep = 0;
+  switchSection('templates');
 }
 
 // ===== 删除模板 =====
@@ -167,7 +180,7 @@ function profileBody() {
   return `
     <div class="info-banner">
       <i class="bi bi-info-circle-fill me-2" style="color:var(--primary)"></i>
-      <span class="text-muted">档案信息是物模型模板的基础元数据，<span class="fw-semibold">模板名称</span>与<span class="fw-semibold">模板编码</span>为必填项。支持导入已有 JSON 模板。</span>
+      <span class="text-muted">档案信息是物模型模板的基础元数据，<span class="fw-semibold">模板编码</span>与<span class="fw-semibold">模板名称</span>为必填项。支持导入已有 JSON 模板。</span>
     </div>
     <div class="d-flex justify-content-end mb-2">
       <label class="btn btn-outline-secondary btn-sm mb-0">
@@ -178,14 +191,14 @@ function profileBody() {
     <div class="form-section-divider"><span><i class="bi bi-folder2-open me-1"></i>档案信息</span></div>
     <div class="row g-3">
       <div class="col-md-6">
-        <label class="form-label fw-semibold">模板名称 <span class="text-danger">*</span></label>
-        <input type="text" class="form-control" id="pf-name" value="${escapeHtml(p.name)}" placeholder="如：PCS 储能变流器">
-        <div class="invalid-feedback">请输入模板名称</div>
-      </div>
-      <div class="col-md-6">
         <label class="form-label fw-semibold">模板编码 <span class="text-danger">*</span></label>
         <input type="text" class="form-control" id="pf-code" value="${escapeHtml(p.code)}" placeholder="如：PCS-DEVICE-001">
         <div class="invalid-feedback">请输入模板编码</div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">模板名称 <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" id="pf-name" value="${escapeHtml(p.name)}" placeholder="如：PCS 储能变流器">
+        <div class="invalid-feedback">请输入模板名称</div>
       </div>
       <div class="col-md-6">
         <label class="form-label fw-semibold">模板分类</label>
@@ -213,7 +226,7 @@ function bindProfileInputs() {
 // 档案信息校验
 function validateProfile() {
   let ok = true;
-  [['pf-name', 'name'], ['pf-code', 'code']].forEach(([id, k]) => {
+  [['pf-code', 'code'], ['pf-name', 'name']].forEach(([id, k]) => {
     const el = document.getElementById(id);
     if (!el || !state.draft[k] || !state.draft[k].trim()) {
       if (el) el.classList.add('is-invalid');
@@ -256,8 +269,8 @@ function propertiesBody() {
     tbody = rows.map((r, i) => `
       <tr>
         <td>${r.number}</td>
-        <td>${escapeHtml(r.name)}</td>
         <td><code>${escapeHtml(r.key)}</code></td>
+        <td>${escapeHtml(r.name)}</td>
         <td>${typeBadge(r.type)}</td>
         <td>${escapeHtml(r.unit || '-')}</td>
         <td>${escapeHtml(r.default == null ? '' : String(r.default))}</td>
@@ -270,7 +283,7 @@ function propertiesBody() {
   return `
     <div class="info-banner">
       <i class="bi bi-info-circle-fill me-2" style="color:var(--primary)"></i>
-      <span class="text-muted">属性定义设备<span class="fw-semibold">数据点</span>。<span class="fw-semibold">数值类型(number)</span>可聚合，<span class="fw-semibold">枚举类型(enum)</span>有值描述。</span>
+      <span class="text-muted">属性定义设备<span class="fw-semibold">数据点</span>。<span class="fw-semibold">数据类型(number)</span>可聚合，<span class="fw-semibold">状态类型(status)</span>须配置状态值。</span>
     </div>
     <div class="d-flex justify-content-end mb-2">
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#propModal" onclick="resetPropertyModal()"><i class="bi bi-plus-lg me-1"></i>新增属性</button>
@@ -278,7 +291,7 @@ function propertiesBody() {
     <div class="table-responsive">
       <table class="table table-hover align-middle">
         <thead><tr>
-          <th>编号</th><th>属性名称</th><th>标识符</th><th>类型</th><th>单位</th><th>默认值</th><th class="text-end">操作</th>
+          <th>编号</th><th>标识符</th><th>属性名称</th><th>类型</th><th>单位</th><th>默认值</th><th class="text-end">操作</th>
         </tr></thead>
         <tbody>${tbody}</tbody>
       </table>
@@ -286,23 +299,30 @@ function propertiesBody() {
 }
 
 function typeBadge(type) {
-  if (type === 'enum') return `<span class="badge-pill badge-r">enum</span>`;
+  if (type === 'status') return `<span class="badge-pill badge-r">status</span>`;
   if (type === 'number') return `<span class="badge-pill badge-rw">number</span>`;
   return `<span class="badge-pill badge-w">${escapeHtml(type || '-')}</span>`;
 }
 
 // 属性编辑：弹出 Modal，使用临时索引记录编辑对象
 let _editingPropIndex = -1;
+
+// 计算下一个编号：从 0 开始自动递增（0,1,2...），适用于属性/服务/告警
+function nextRowNumber(rows) {
+  if (!rows || rows.length === 0) return 0;
+  return Math.max(...rows.map(r => (typeof r.number === 'number' ? r.number : -1))) + 1;
+}
+
 function resetPropertyModal() {
   _editingPropIndex = -1;
-  document.getElementById('prop-number').value = state.draft.properties.length;
-  document.getElementById('prop-name').value = '';
+  document.getElementById('prop-number').value = nextRowNumber(state.draft.properties);
   document.getElementById('prop-key').value = '';
-  document.getElementById('prop-default').value = '0';
+  document.getElementById('prop-name').value = '';
+  document.getElementById('prop-default').value = '';
   document.getElementById('prop-unit').value = '';
   document.getElementById('prop-type').value = 'number';
   document.getElementById('prop-desc-list').innerHTML = '';
-  toggleEnumDesc('prop-type', 'prop-desc-list');
+  onPropTypeChange();
 }
 
 function editProperty(index) {
@@ -314,10 +334,10 @@ function editProperty(index) {
   document.getElementById('prop-default').value = (r.default == null ? '' : String(r.default));
   document.getElementById('prop-unit').value = r.unit || '';
   document.getElementById('prop-type').value = r.type || 'number';
-  // 枚举描述
+  // 状态值描述
   const dl = document.getElementById('prop-desc-list');
-  dl.innerHTML = (r.description || []).map((d, i) => enumDescRow(d, i)).join('') || '';
-  toggleEnumDesc('prop-type', 'prop-desc-list');
+  dl.innerHTML = (r.description || []).map((d, i) => statusDescRow(d, i)).join('') || '';
+  onPropTypeChange();
   new bootstrap.Modal(document.getElementById('propModal')).show();
 }
 
@@ -329,9 +349,10 @@ function addProperty() {
     default: parseDefault(document.getElementById('prop-default').value, document.getElementById('prop-type').value),
     unit: document.getElementById('prop-unit').value.trim(),
     type: document.getElementById('prop-type').value,
-    description: collectEnumDesc('prop-desc-list')
+    description: collectStatusDesc('prop-desc-list')
   };
   if (!prop.name || !prop.key) { toast('请填写属性名称和标识符', 'error'); return; }
+  if (prop.type === 'status' && !prop.description.length) { toast('状态类型(status)至少配置一个状态值', 'error'); return; }
   if (_editingPropIndex >= 0) state.draft.properties[_editingPropIndex] = prop;
   else state.draft.properties.push(prop);
   bootstrap.Modal.getInstance(document.getElementById('propModal')).hide();
@@ -340,6 +361,8 @@ function addProperty() {
 
 function removeProperty(index) {
   state.draft.properties.splice(index, 1);
+  // 编号自动生成，删除后重新排列，保持从 0 开始连续
+  state.draft.properties.forEach((p, i) => p.number = i);
   renderStep();
 }
 
@@ -353,8 +376,8 @@ function methodsBody() {
     tbody = rows.map((r, i) => `
       <tr>
         <td>${r.number}</td>
-        <td>${escapeHtml(r.name)}</td>
         <td><code>${escapeHtml(r.key)}</code></td>
+        <td>${escapeHtml(r.name)}</td>
         <td>${typeBadge(r.type)}</td>
         <td>${escapeHtml(r.desc || '-')}</td>
         <td class="text-end">
@@ -374,7 +397,7 @@ function methodsBody() {
     <div class="table-responsive">
       <table class="table table-hover align-middle">
         <thead><tr>
-          <th>编号</th><th>方法名称</th><th>标识符</th><th>类型</th><th>描述</th><th class="text-end">操作</th>
+          <th>编号</th><th>标识符</th><th>服务名称</th><th>类型</th><th>描述</th><th class="text-end">操作</th>
         </tr></thead>
         <tbody>${tbody}</tbody>
       </table>
@@ -384,55 +407,71 @@ function methodsBody() {
 let _editingMethodIndex = -1;
 function resetMethodModal() {
   _editingMethodIndex = -1;
-  document.getElementById('mt-number').value = state.draft.methods.length;
-  document.getElementById('mt-name').value = '';
+  document.getElementById('mt-number').value = nextRowNumber(state.draft.methods);
   document.getElementById('mt-key').value = '';
+  document.getElementById('mt-name').value = '';
   document.getElementById('mt-desc').value = '';
   document.getElementById('mt-type').value = 'number';
   document.getElementById('mt-min').value = '0';
   document.getElementById('mt-max').value = '0';
   document.getElementById('mt-desc-list').innerHTML = '';
-  toggleEnumDesc('mt-type', 'mt-desc-list');
+  onMethodTypeChange();
 }
 
 function editMethod(index) {
   const r = state.draft.methods[index];
   _editingMethodIndex = index;
   document.getElementById('mt-number').value = r.number;
-  document.getElementById('mt-name').value = r.name || '';
   document.getElementById('mt-key').value = r.key || '';
+  document.getElementById('mt-name').value = r.name || '';
   document.getElementById('mt-desc').value = r.desc || '';
   document.getElementById('mt-type').value = r.type || 'number';
   document.getElementById('mt-min').value = (r.validation && r.validation.min != null) ? r.validation.min : 0;
   document.getElementById('mt-max').value = (r.validation && r.validation.max != null) ? r.validation.max : 0;
   const dl = document.getElementById('mt-desc-list');
-  dl.innerHTML = (r.descriptions && Array.isArray(r.descriptions) ? r.descriptions : []).map((d, i) => enumDescRow(d, i)).join('') || '';
-  toggleEnumDesc('mt-type', 'mt-desc-list');
+  dl.innerHTML = (r.descriptions && Array.isArray(r.descriptions) ? r.descriptions : []).map((d, i) => statusDescRow(d, i)).join('') || '';
+  onMethodTypeChange();
   new bootstrap.Modal(document.getElementById('methodModal')).show();
 }
 
 function addMethod() {
   const m = {
     number: parseInt(document.getElementById('mt-number').value) || 0,
-    name: document.getElementById('mt-name').value.trim(),
     key: document.getElementById('mt-key').value.trim(),
+    name: document.getElementById('mt-name').value.trim(),
     desc: document.getElementById('mt-desc').value.trim(),
     type: document.getElementById('mt-type').value,
     validation: {
       min: parseFloat(document.getElementById('mt-min').value) || 0,
       max: parseFloat(document.getElementById('mt-max').value) || 0
     },
-    descriptions: collectEnumDesc('mt-desc-list')
+    descriptions: collectStatusDesc('mt-desc-list')
   };
-  if (!m.name || !m.key) { toast('请填写方法名称和标识符', 'error'); return; }
+  if (!m.name || !m.key) { toast('请填写服务名称和标识符', 'error'); return; }
+  if (m.type === 'status' && !m.descriptions.length) { toast('状态类型(status)至少配置一个状态值', 'error'); return; }
+  if (m.type === 'status') {
+    // 工程值必填且唯一
+    const vals = m.descriptions.map(d => d.value);
+    if (vals.some(v => v == null || String(v) === '')) { toast('状态类型的工程值必填', 'error'); return; }
+    if (new Set(vals.map(String)).size !== vals.length) { toast('状态类型的工程值不能重复', 'error'); return; }
+  }
   if (_editingMethodIndex >= 0) state.draft.methods[_editingMethodIndex] = m;
   else state.draft.methods.push(m);
   bootstrap.Modal.getInstance(document.getElementById('methodModal')).hide();
   renderStep();
 }
 
+// 服务类型切换：显隐状态值配置区 + 数值类型才显示最小/最大值（默认不添加未知状态行）
+function onMethodTypeChange() {
+  const type = document.getElementById('mt-type').value;
+  toggleStatusSection('mt-type', 'mt-desc-list');
+  document.querySelectorAll('.js-mt-num-only').forEach(el => el.classList.toggle('d-none', type !== 'number'));
+}
+
 function removeMethod(index) {
   state.draft.methods.splice(index, 1);
+  // 编号自动生成，删除后重新排列，保持从 0 开始连续
+  state.draft.methods.forEach((m, i) => m.number = i);
   renderStep();
 }
 
@@ -482,7 +521,7 @@ function eventsBody() {
 let _editingEventIndex = -1;
 function resetEventModal() {
   _editingEventIndex = -1;
-  document.getElementById('ev-number').value = state.draft.events.length;
+  document.getElementById('ev-number').value = nextRowNumber(state.draft.events);
   document.getElementById('ev-name').value = '';
   document.getElementById('ev-key').value = '';
   document.getElementById('ev-desc').value = '';
@@ -526,6 +565,8 @@ function addEvent() {
 
 function removeEvent(index) {
   state.draft.events.splice(index, 1);
+  // 编号自动生成，删除后重新排列，保持从 0 开始连续
+  state.draft.events.forEach((e, i) => e.number = i);
   renderStep();
 }
 
@@ -579,44 +620,56 @@ async function saveDraft() {
   }
 }
 
-// ===== 共享：枚举描述编辑组件 =====
-function enumDescRow(d, i) {
+// ===== 状态值编辑组件（属性/服务 status 类型）：状态值 / 状态标签 / 状态名称 / 工程值 =====
+function statusDescRow(d, i) {
   return `
-    <div class="input-group mb-1 enum-row">
-      <input type="number" class="form-control enum-enum" placeholder="enum" value="${d.enum != null ? d.enum : ''}">
-      <input type="text" class="form-control enum-key" placeholder="key(如:online)" value="${escapeHtml(d.key || '')}">
-      <input type="text" class="form-control enum-name" placeholder="名称(如:在线)" value="${escapeHtml(d.name || '')}">
-      <input type="text" class="form-control enum-value" placeholder="value" value="${d.value != null ? d.value : ''}">
+    <div class="status-row">
+      <input type="number" class="form-control st-enum" placeholder="如：0" value="${d.enum != null ? d.enum : ''}">
+      <input type="text" class="form-control st-key" placeholder="如：online" value="${escapeHtml(d.key || '')}">
+      <input type="text" class="form-control st-name" placeholder="如：在线" value="${escapeHtml(d.name || '')}">
+      <input type="number" class="form-control st-value" placeholder="如：1" value="${d.value != null ? d.value : ''}">
       <button class="btn btn-outline-danger" onclick="removeRow(this)">×</button>
     </div>`;
 }
 
-function addEnumRow(listId) {
+function addStatusRow(listId, d) {
+  d = d || {};
   const list = document.getElementById(listId);
   const div = document.createElement('div');
-  div.className = 'input-group mb-1 enum-row';
+  div.className = 'status-row';
   div.innerHTML = `
-    <input type="number" class="form-control enum-enum" placeholder="enum">
-    <input type="text" class="form-control enum-key" placeholder="key">
-    <input type="text" class="form-control enum-name" placeholder="name">
-    <input type="number" class="form-control enum-value" placeholder="value">
+    <input type="number" class="form-control st-enum" placeholder="如：0" value="${d.enum != null ? d.enum : ''}">
+    <input type="text" class="form-control st-key" placeholder="如：online" value="${escapeHtml(d.key || '')}">
+    <input type="text" class="form-control st-name" placeholder="如：在线" value="${escapeHtml(d.name || '')}">
+    <input type="number" class="form-control st-value" placeholder="如：1" value="${d.value != null ? d.value : ''}">
     <button class="btn btn-outline-danger" onclick="removeRow(this)">×</button>`;
   list.appendChild(div);
 }
 
-function collectEnumDesc(listId) {
+// 属性类型切换：显隐状态值配置区 + 补默认未知状态行
+function onPropTypeChange() {
+  toggleStatusSection('prop-type', 'prop-desc-list');
+  // 切换到状态类型且状态值列表为空时，自动添加默认未知状态行（状态值 -999，工程值留空）
+  if (document.getElementById('prop-type').value === 'status' &&
+      document.querySelectorAll('#prop-desc-list .status-row').length === 0) {
+    addStatusRow('prop-desc-list', { enum: -999, key: 'unknown', name: '未知', value: null });
+  }
+}
+
+// 收集状态值列表：四项中任一项非空即保留该行；工程值留空存 null
+function collectStatusDesc(listId) {
   const out = [];
-  document.querySelectorAll('#' + listId + ' .enum-row').forEach(row => {
-    const enumValue = row.querySelector('.enum-enum').value.trim();
-    const key = row.querySelector('.enum-key').value.trim();
-    const name = row.querySelector('.enum-name').value.trim();
-    const value = row.querySelector('.enum-value').value.trim();
+  document.querySelectorAll('#' + listId + ' .status-row').forEach(row => {
+    const enumValue = row.querySelector('.st-enum').value.trim();
+    const key = row.querySelector('.st-key').value.trim();
+    const name = row.querySelector('.st-name').value.trim();
+    const value = row.querySelector('.st-value').value.trim();
     if (enumValue || key || name || value) {
       out.push({
         enum: enumValue !== '' ? parseInt(enumValue) : 0,
         key: key,
         name: name,
-        value: value !== '' ? parseInt(value) : 0
+        value: value !== '' ? parseInt(value) : null
       });
     }
   });
@@ -630,6 +683,8 @@ function parseValue(v) {
 }
 
 function parseDefault(v, type) {
+  // 默认值允许为空：留空表示不设置默认值
+  if (v == null || v.trim() === '') return null;
   if (type === 'number') {
     const n = Number(v);
     return isNaN(n) ? 0 : n;
@@ -637,15 +692,15 @@ function parseDefault(v, type) {
   return parseValue(v);
 }
 
-// 切换枚举描述区显隐
-function toggleEnumDesc(typeId, descId) {
+// 切换状态值配置区显隐（status 类型显示）
+function toggleStatusSection(typeId, descId) {
   const type = document.getElementById(typeId).value;
   const desc = document.getElementById(descId);
-  const wrap = desc.closest('.enum-desc-wrap');
-  if (wrap) wrap.style.display = (type === 'enum') ? '' : 'none';
+  const wrap = desc.closest('.desc-section-wrap');
+  if (wrap) wrap.style.display = (type === 'status') ? '' : 'none';
 }
 
-function removeRow(btn) { btn.closest('.enum-row, .input-group').remove(); }
+function removeRow(btn) { btn.closest('.status-row').remove(); }
 
 // ===== 向导导航 =====
 function nextStep() {

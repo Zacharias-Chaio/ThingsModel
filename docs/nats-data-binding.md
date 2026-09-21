@@ -43,8 +43,9 @@ flowchart LR
 - Subject：`{input_subject_prefix}.{gateway_id}.data`
 - Headers：`PP-Message-ID`、`PP-Message-Type=data`、`PP-Message-Version=v1.0`、`PP-Message-Timestamp`
 - Payload：Gateway 的 `MessageData` JSON，其中属性位于 `properties[property_id]`。
+- 每条遥测为该采集设备的**全量刷新**：`properties` 是设备当前完整的点位集，按消息整体替换。消息中未包含的点位视为不存在（绑定该点位的属性值显示为空，不保留历史值）。
 
-来源目录 API `GET /api/runtime/sources` 返回每个已发现来源及其属性。当前 Gateway v1 没有稳定的采集设备实例 ID，因此来源以 `gateway_id/channel_index/device_index` 组合键保存到既有绑定中的 `deviceId` 字段，属性 map key 保存到 `propertyId`。
+来源目录 API `GET /api/runtime/sources` 返回每个已发现来源及其属性。来源按 `gatewayId` / `channelId` / `deviceId` / `propertyId` 四级字段定位（通道与设备为上游网关内索引，从 0 开始），绑定允许留空表示未绑定。
 
 **约束**：Gateway 修改某通道内设备的挂载顺序后，`device_index` 可能变化，需要重新检查相应绑定。后续 Gateway 契约应增加稳定 `device_id`，届时 ThingsModel 可无损迁移来源键。
 
@@ -54,10 +55,10 @@ flowchart LR
 
 - 未启用的物模型设备不扇出数据。
 - 未绑定属性标记为 `unbound`；缺少来源为 `unavailable`；`null`、非数值聚合输入或非法运算标记为 `invalid`；超过 `nats.stale_after` 的来源标记为 `stale`。
-- 枚举属性仅支持 `EPT`，用模板 `description[].value` 匹配上游原始值，输出对应 `description[].enum`。未匹配时输出 `unmapped`，有 `enum=-1` 定义时输出 `-1`。
-- 数值属性支持 `EPT`、`SUM`、`AVG`、`MIN`、`MAX`、`AND`、`OR`、`NOT`。逻辑运算把零视为 false、非零视为 true，输出 `0` 或 `1`。
+- 状态属性（`status`）仅支持 `ept`，用模板 `description[].value` 匹配上游原始值，输出对应 `description[].enum`。未匹配时输出 `unmapped`，有 `enum=-999`（未知状态）定义时输出 `-999`。
+- 数据属性（`number`）支持 `ept`、`sum`、`avg`、`min`、`max`、`and`、`or`、`not`。逻辑运算把零视为 false、非零视为 true，输出 `0` 或 `1`。
 - 不自动做单位换算；上游单位只用于来源信息，物模型输出单位由模板属性定义。
-- 一个事件的任一绑定来源满足 `equal` / `upper` / `lower` 阈值即进入触发计时；持续 `event.time` 毫秒后标记 `active`，否则为 `pending`。不满足阈值时为 `inactive`。
+- 告警按检测点位求值：每个检测点位关联一条或多条告警规则，先按各规则自身的触发类型（`equal` / `upper` / `lower`）、阈值与持续时间（`rule.time`）逐条判定，再按关联方法合并——单条规则 `ept` 直判；多条规则 `and`（全部成立）或 `or`（任一成立）。合并成立且各规则持续达时长后为 `active`，条件满足但计时未达为 `pending`，不满足为 `inactive`。
 
 ## 输出契约
 
@@ -81,8 +82,8 @@ flowchart LR
     }
   },
   "events": {
-    "overPower": {
-      "name": "功率过高",
+    "overVoltage+underVoltage": {
+      "name": "过压告警 / 欠压告警",
       "level": 2,
       "status": "active",
       "active": true,

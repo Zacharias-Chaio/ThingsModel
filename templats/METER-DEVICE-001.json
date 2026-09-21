@@ -1,0 +1,332 @@
+{
+    "name": "Meter",
+    "code": "METER-DEVICE-001",
+    "category": "Meter",
+    "version": "1.0.0",
+    "description": "The energy meter measures and records electrical parameters such as energy, voltage, current, and power in real time, providing data for energy management and billing.",
+    "properties": [
+        {
+            "number": 0,
+            "name": "通讯状态",
+            "key": "comm",
+            "default": 0,
+            "unit": "",
+            "type": "status",
+            "description": [
+                {
+                    "enum": 0,
+                    "key": "off",
+                    "name": "离线",
+                    "value": 0
+                },
+                {
+                    "enum": 1,
+                    "key": "on",
+                    "name": "在线",
+                    "value": 1
+                }
+            ],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 1,
+            "name": "A相电压",
+            "key": "aVoltage",
+            "default": null,
+            "unit": "V",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 2,
+            "name": "B相电压",
+            "key": "bVoltage",
+            "default": null,
+            "unit": "V",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 3,
+            "name": "C相电压",
+            "key": "cVoltage",
+            "default": null,
+            "unit": "V",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 4,
+            "name": "A相电流",
+            "key": "aCurrent",
+            "default": null,
+            "unit": "A",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 5,
+            "name": "B相电流",
+            "key": "bCurrent",
+            "default": null,
+            "unit": "A",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 6,
+            "name": "C相电流",
+            "key": "cCurrent",
+            "default": null,
+            "unit": "A",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 7,
+            "name": "频率",
+            "key": "frequency",
+            "default": null,
+            "unit": "HZ",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 8,
+            "name": "有功功率",
+            "key": "activePower",
+            "default": null,
+            "unit": "kw",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 9,
+            "name": "无功功率",
+            "key": "reactivePower",
+            "default": null,
+            "unit": "kvar",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 10,
+            "name": "视在功率",
+            "key": "apparentPower",
+            "default": null,
+            "unit": "kVA",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 11,
+            "name": "功率因数",
+            "key": "powerFactor",
+            "default": null,
+            "unit": "",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 12,
+            "name": "有功总电能",
+            "key": "totalActiveEnergy",
+            "default": null,
+            "unit": "kwh",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 13,
+            "name": "正向有功电能",
+            "key": "forwardActiveEnergy",
+            "default": null,
+            "unit": "kwh",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 14,
+            "name": "反向有功电能",
+            "key": "reverseActiveEnergy",
+            "default": null,
+            "unit": "kwh",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 15,
+            "name": "无功总电能",
+            "key": "totalReactiveEnergy",
+            "default": null,
+            "unit": "kwh",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 16,
+            "name": "正向无功电能",
+            "key": "forwardReactiveEnergy",
+            "default": null,
+            "unit": "kwh",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 17,
+            "name": "反向无功电能",
+            "key": "reverseReactiveEnergy",
+            "default": null,
+            "unit": "kwh",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 18,
+            "name": "电压变比",
+            "key": "PT",
+            "default": null,
+            "unit": "",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        },
+        {
+            "number": 19,
+            "name": "电流变比",
+            "key": "CT",
+            "default": null,
+            "unit": "",
+            "type": "number",
+            "description": [],
+            "binding": {
+                "method": "",
+                "sources": null
+            }
+        }
+    ],
+    "methods": [
+        {
+            "number": 0,
+            "name": "设置电压变比",
+            "key": "setPT",
+            "desc": "",
+            "type": "number",
+            "validation": {
+                "min": 0,
+                "max": 0
+            },
+            "descriptions": [],
+            "binding": {
+                "gatewayId": "",
+                "channelId": 0,
+                "deviceId": 0,
+                "propertyId": ""
+            }
+        },
+        {
+            "number": 1,
+            "name": "设置电流变比",
+            "key": "setCT",
+            "desc": "",
+            "type": "number",
+            "validation": {
+                "min": 0,
+                "max": 0
+            },
+            "descriptions": [],
+            "binding": {
+                "gatewayId": "",
+                "channelId": 0,
+                "deviceId": 0,
+                "propertyId": ""
+            }
+        }
+    ],
+    "events": [
+        {
+            "number": 0,
+            "name": "通讯故障",
+            "key": "comm_fault",
+            "description": "设备离线故障",
+            "level": 1,
+            "type": "equal",
+            "threshold": 0,
+            "time": 3000
+        }
+    ]
+}

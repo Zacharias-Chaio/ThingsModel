@@ -19,48 +19,51 @@ type Template struct {
 
 // Property 属性定义。
 type Property struct {
-	Number      int        `json:"number"`      // 属性编号 0,1,2,3...
-	Name        string     `json:"name"`        // 中文属性名称
-	Key         string     `json:"key"`         // 英文属性名称
-	Default     any        `json:"default"`     // 属性默认值
-	Unit        string     `json:"unit"`        // 属性单位
-	Type        string     `json:"type"`        // enum | number
-	Description []EnumDesc `json:"description"` // 枚举值描述（type=enum 时有效）
-	Binding     Binding    `json:"binding"`     // 属性绑定（聚合方法 + 数据来源）
+	Number      int          `json:"number"`      // 属性编号 0,1,2,3...（自动生成，不可修改）
+	Name        string       `json:"name"`        // 中文属性名称
+	Key         string       `json:"key"`         // 英文属性名称（标识符）
+	Default     any          `json:"default"`     // 属性默认值（可为 null 表示不设置）
+	Unit        string       `json:"unit"`        // 属性单位（选填）
+	Type        string       `json:"type"`        // status（状态类型）| number（数据类型）
+	Description []StatusDesc `json:"description"` // 状态值描述（type=status 时有效）
+	Binding     Binding      `json:"binding"`     // 属性绑定（聚合方法 + 数据来源）
 }
 
-// EnumDesc 枚举值描述。
-type EnumDesc struct {
-	Enum  int    `json:"enum"`  // 枚举值（不可修改）
-	Key   string `json:"key"`   // 英文标识
-	Name  string `json:"name"`  // 中文名称
-	Value any    `json:"value"` // 实际采集/下发值
+// StatusDesc 状态值描述（属性/服务的 status 类型）。
+type StatusDesc struct {
+	Enum  int    `json:"enum"`  // 状态值（不可修改；-999 约定为未知状态）
+	Key   string `json:"key"`   // 状态标签
+	Name  string `json:"name"`  // 状态名称
+	Value any    `json:"value"` // 工程值（属性可为空；服务必填且唯一）
 }
 
 // Binding 属性绑定：聚合方法 + 多个数据来源。
-// Method 取值：EPT(直接绑定)、SUM、AVG、MIN、MAX、AND、OR、NOT。
+// Method 取值：ept(直接绑定)、sum、avg、min、max、and、or、not（统一小写，默认 ept）。
 type Binding struct {
-	Method  string          `json:"method"`  // EPT, SUM, AVG, MIN, MAX, AND, OR, NOT
+	Method  string          `json:"method"`  // ept, sum, avg, min, max, and, or, not（默认 ept）
 	Sources []BindingSource `json:"sources"` // 数据来源列表
 }
 
-// BindingSource 绑定来源：设备ID + 属性ID。
+// BindingSource 绑定来源：网关/通道/设备/属性 四级定位一个上游点位。
+// ChannelID、DeviceID 为上游网关内的索引（从 0 开始）；来源允许留空（未绑定）。
 type BindingSource struct {
-	DeviceID   string `json:"deviceId"`
-	PropertyID string `json:"propertyId"`
+	GatewayID  string `json:"gatewayId"`  // 网关 ID
+	ChannelID  int    `json:"channelId"`  // 通道 ID（通道索引）
+	DeviceID   int    `json:"deviceId"`   // 设备 ID（设备索引）
+	PropertyID string `json:"propertyId"` // 属性 ID
 }
 
 // Method 服务/方法定义。
-// 注：模板说明.md 中 description 同时用作方法描述(字符串)与枚举值列表(数组)，
-// 此处拆为两个字段以避免 JSON 键冲突：Desc 为描述文本，Descriptions 为枚举值。
+// 注：模板说明.md 中 description 同时用作服务描述(字符串)与状态值列表(数组)，
+// 此处拆为两个字段以避免 JSON 键冲突：Desc 为描述文本，Descriptions 为状态值。
 type Method struct {
-	Number       int           `json:"number"`       // 方法编号
-	Name         string        `json:"name"`         // 方法名称
-	Key          string        `json:"key"`          // 方法英文名称
-	Desc         string        `json:"desc"`         // 方法描述（文本）
-	Type         string        `json:"type"`         // enum | number
-	Validation   Validation    `json:"validation"`   // 有效性检查（数值类型必填）
-	Descriptions []EnumDesc    `json:"descriptions"` // 枚举值描述（type=enum 时有效）
+	Number       int           `json:"number"`       // 服务编号 0,1,2,3...（自动生成，不可修改）
+	Name         string        `json:"name"`         // 服务名称
+	Key          string        `json:"key"`          // 服务英文名称（标识符）
+	Desc         string        `json:"desc"`         // 服务描述（文本）
+	Type         string        `json:"type"`         // status（状态类型）| number（数值类型）
+	Validation   Validation    `json:"validation"`   // 有效性检查（数值类型时配置最小/最大值）
+	Descriptions []StatusDesc  `json:"descriptions"` // 状态值描述（type=status 时有效，工程值必填且唯一）
 	Binding      MethodBinding `json:"binding"`      // 控制绑定（单点下发）
 }
 
@@ -70,21 +73,36 @@ type Validation struct {
 	Max float64 `json:"max"`
 }
 
-// MethodBinding 方法绑定：单点下发到指定设备的指定属性。
+// MethodBinding 方法绑定：单点下发，按网关/通道/设备/属性 四级定位。
 type MethodBinding struct {
-	DeviceID   string `json:"deviceId"`
+	GatewayID  string `json:"gatewayId"`
+	ChannelID  int    `json:"channelId"`
+	DeviceID   int    `json:"deviceId"`
 	PropertyID string `json:"propertyId"`
 }
 
-// Event 告警/事件定义。
+// Event 告警规则定义（模板层，纯定义，不含绑定）。
 type Event struct {
-	Number      int             `json:"number"`      // 事件编号
-	Name        string          `json:"name"`        // 事件名称
-	Key         string          `json:"key"`         // 事件英文名称
-	Description string          `json:"description"` // 事件描述
-	Level       int             `json:"level"`       // 0-提示 1-一般 2-严重 3-紧急
-	Type        string          `json:"type"`        // equal | upper | lower
-	Threshold   float64         `json:"threshold"`   // 触发阈值
-	Time        int             `json:"time"`        // 持续时间（毫秒），0 表示立即触发
-	Binding     []BindingSource `json:"binding"`     // 关联属性列表
+	Number      int     `json:"number"`      // 事件编号
+	Name        string  `json:"name"`        // 事件名称
+	Key         string  `json:"key"`         // 事件英文名称
+	Description string  `json:"description"` // 事件描述
+	Level       int     `json:"level"`       // 0-提示 1-一般 2-严重 3-紧急
+	Type        string  `json:"type"`        // equal | upper | lower
+	Threshold   float64 `json:"threshold"`   // 触发阈值
+	Time        int     `json:"time"`        // 持续时间（毫秒），0 表示立即触发
+}
+
+// AlarmBinding 告警检测点位关联：一个检测点位匹配多条告警规则。
+// 单条规则 method=ept 直判；多条规则 method=and（全部成立）/ or（任一成立，默认）。
+type AlarmBinding struct {
+	Point  BindingSource `json:"point"`  // 检测点位（网关/通道/设备/属性 四级定位）
+	Method string        `json:"method"` // ept | and | or
+	Rules  []string      `json:"rules"`  // 关联的告警规则 key 列表
+}
+
+// DeviceEvents 设备实例的告警配置：规则快照 + 检测点位关联。
+type DeviceEvents struct {
+	Rule    []Event        `json:"rule"`    // 告警规则（模板快照，纯定义）
+	Binding []AlarmBinding `json:"binding"` // 检测点位与告警规则的关联
 }

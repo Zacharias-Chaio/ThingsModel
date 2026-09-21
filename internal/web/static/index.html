@@ -90,9 +90,12 @@
 
       <!-- ===== Section: 向导 ===== -->
       <section class="app-section d-none" id="section-wizard">
-        <div class="section-header">
-          <h4><i class="bi bi-magic me-2" style="color:var(--primary)"></i>物模型模板配置向导</h4>
-          <div class="sub">按步骤完成物模型模板的档案、属性、服务、告警配置与预览。</div>
+        <div class="wizard-back-bar">
+          <button class="btn btn-outline-secondary btn-sm" onclick="backToTemplateList()"><i class="bi bi-arrow-left me-1"></i>返回列表</button>
+          <div class="flex-grow-1 min-w-0">
+            <div class="wb-title" id="tpl-wizard-title">物模型模板配置向导</div>
+            <div class="wb-sub">按步骤完成物模型模板的档案、属性、服务、告警配置与预览。</div>
+          </div>
         </div>
         <div class="stepper" id="stepper">
           <div class="step-item active"><div class="step-circle">1</div><div class="step-label">档案信息</div></div>
@@ -128,9 +131,12 @@
 
       <!-- ===== Section: 设备配置向导 ===== -->
       <section class="app-section d-none" id="section-device-wizard">
-        <div class="section-header">
-          <h4><i class="bi bi-hdd-stack me-2" style="color:var(--primary)"></i>设备实例配置</h4>
-          <div class="sub">基于模板保存独立设备快照，配置变更会立即热重载到运行配置。</div>
+        <div class="wizard-back-bar">
+          <button class="btn btn-outline-secondary btn-sm" onclick="backToDeviceList()"><i class="bi bi-arrow-left me-1"></i>返回列表</button>
+          <div class="flex-grow-1 min-w-0">
+            <div class="wb-title" id="device-wizard-title">设备实例配置</div>
+            <div class="wb-sub">基于模板保存独立设备快照，配置变更会立即热重载到运行配置。</div>
+          </div>
         </div>
         <div class="stepper" id="device-stepper"></div>
         <div class="wizard-wrapper">
@@ -202,38 +208,40 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <div class="form-section-divider"><span><i class="bi bi-card-checklist me-1"></i>属性配置</span></div>
         <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
-            <input type="number" class="form-control" id="prop-number" value="0">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">属性名称 <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="prop-name" placeholder="如：温度">
+            <label class="form-label fw-semibold">编号</label>
+            <input type="number" class="form-control" id="prop-number" value="0" readonly>
           </div>
           <div class="col-md-4">
             <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="prop-key" placeholder="如：temperature">
           </div>
           <div class="col-md-4">
+            <label class="form-label fw-semibold">属性名称 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="prop-name" placeholder="如：温度">
+          </div>
+          <div class="col-md-4">
             <label class="form-label fw-semibold">类型 <span class="text-danger">*</span></label>
-            <select class="form-select" id="prop-type" onchange="toggleEnumDesc('prop-type','prop-desc-list')">
-              <option value="number">number（数值类型，可聚合）</option>
-              <option value="enum">enum（枚举类型，有描述）</option>
+            <select class="form-select" id="prop-type" onchange="onPropTypeChange()">
+              <option value="number">number</option>
+              <option value="status">status</option>
             </select>
           </div>
           <div class="col-md-4">
             <label class="form-label fw-semibold">单位</label>
-            <input type="text" class="form-control" id="prop-unit" placeholder="如：℃">
+            <input type="text" class="form-control" id="prop-unit" placeholder="℃">
           </div>
           <div class="col-md-4">
             <label class="form-label fw-semibold">默认值</label>
-            <input type="text" class="form-control" id="prop-default" placeholder="如：0">
+            <input type="text" class="form-control" id="prop-default" placeholder="0"> 
           </div>
-          <div class="col-12 enum-desc-wrap">
-            <div class="form-section-divider"><span><i class="bi bi-list-ul me-1"></i>枚举值描述（type=enum 时填写）</span></div>
+          <div class="col-12 desc-section-wrap">
+            <div class="form-section-divider"><span><i class="bi bi-list-ul me-1"></i>状态值配置</span></div>
+            <div class="status-row status-row-head"><div>状态值</div><div>状态标签</div><div>状态名称</div><div>工程值</div><div></div></div>
             <div id="prop-desc-list"></div>
-            <button class="btn btn-outline-secondary btn-sm" onclick="addEnumRow('prop-desc-list')"><i class="bi bi-plus-lg me-1"></i>添加枚举值</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="addStatusRow('prop-desc-list')"><i class="bi bi-plus-lg me-1"></i>添加状态值</button>
           </div>
         </div>
       </div>
@@ -254,42 +262,44 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        <div class="form-section-divider"><span><i class="bi bi-card-checklist me-1"></i>服务配置</span></div>
         <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
-            <input type="number" class="form-control" id="mt-number" value="0">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">方法名称 <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="mt-name" placeholder="如：开关机">
+            <label class="form-label fw-semibold">编号</label>
+            <input type="number" class="form-control" id="mt-number" value="0" readonly>
           </div>
           <div class="col-md-4">
             <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="mt-key" placeholder="如：onoff">
           </div>
           <div class="col-md-4">
-            <label class="form-label fw-semibold">类型 <span class="text-danger">*</span></label>
-            <select class="form-select" id="mt-type" onchange="toggleEnumDesc('mt-type','mt-desc-list')">
-              <option value="number">number（数值类型）</option>
-              <option value="enum">enum（枚举类型）</option>
-            </select>
+            <label class="form-label fw-semibold">服务名称 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="mt-name" placeholder="如：开关机">
           </div>
           <div class="col-md-4">
+            <label class="form-label fw-semibold">类型 <span class="text-danger">*</span></label>
+            <select class="form-select" id="mt-type" onchange="onMethodTypeChange()">
+              <option value="number">number</option>
+              <option value="status">status</option>
+            </select>
+          </div>
+          <div class="col-md-4 js-mt-num-only">
             <label class="form-label fw-semibold">最小值</label>
             <input type="number" class="form-control" id="mt-min" value="0">
           </div>
-          <div class="col-md-4">
+          <div class="col-md-4 js-mt-num-only">
             <label class="form-label fw-semibold">最大值</label>
             <input type="number" class="form-control" id="mt-max" value="0">
           </div>
           <div class="col-12">
             <label class="form-label fw-semibold">描述</label>
-            <input type="text" class="form-control" id="mt-desc" placeholder="方法描述">
+            <input type="text" class="form-control" id="mt-desc" placeholder="服务描述">
           </div>
-          <div class="col-12 enum-desc-wrap">
-            <div class="form-section-divider"><span><i class="bi bi-list-ul me-1"></i>枚举值描述（type=enum 时填写）</span></div>
+          <div class="col-12 desc-section-wrap">
+            <div class="form-section-divider"><span><i class="bi bi-list-ul me-1"></i>状态值配置</span></div>
+            <div class="status-row status-row-head"><div>状态值</div><div>状态标签</div><div>状态名称</div><div>工程值</div><div></div></div>
             <div id="mt-desc-list"></div>
-            <button class="btn btn-outline-secondary btn-sm" onclick="addEnumRow('mt-desc-list')"><i class="bi bi-plus-lg me-1"></i>添加枚举值</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="addStatusRow('mt-desc-list')"><i class="bi bi-plus-lg me-1"></i>添加状态值</button>
           </div>
         </div>
       </div>
@@ -312,44 +322,44 @@
       <div class="modal-body">
         <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label fw-semibold">编号 <span class="text-danger">*</span></label>
-            <input type="number" class="form-control" id="ev-number" value="0">
+            <label class="form-label fw-semibold">编号</label>
+            <input type="number" class="form-control" id="ev-number" value="0" readonly>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="ev-key" placeholder="如：communicationFault">
           </div>
           <div class="col-md-4">
             <label class="form-label fw-semibold">事件名称 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="ev-name" placeholder="如：通讯故障">
           </div>
           <div class="col-md-4">
-            <label class="form-label fw-semibold">标识符 <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="ev-key" placeholder="如：communicationFault">
-          </div>
-          <div class="col-md-6">
             <label class="form-label fw-semibold">告警级别 <span class="text-danger">*</span></label>
             <select class="form-select" id="ev-level">
-              <option value="0">0 - 提示性告警</option>
-              <option value="1">1 - 一般性告警</option>
-              <option value="2">2 - 严重性告警</option>
-              <option value="3">3 - 紧急故障</option>
+              <option value="0">提示性告警(P0)</option>
+              <option value="1">一般性告警(P1)</option>
+              <option value="2">严重性告警(P2)</option>
+              <option value="3">紧急故障(P3)</option>
             </select>
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">触发类型 <span class="text-danger">*</span></label>
             <select class="form-select" id="ev-type">
-              <option value="equal">equal - 等值触发</option>
-              <option value="upper">upper - 上阈值触发</option>
-              <option value="lower">lower - 下阈值触发</option>
+              <option value="equal">等值触发（=）</option>
+              <option value="upper">上阈值触发（>）</option>
+              <option value="lower">下阈值触发（<）</option>
             </select>
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label fw-semibold">触发阈值 <span class="text-danger">*</span></label>
             <input type="number" class="form-control" id="ev-threshold" value="0">
           </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">触发时间（ms）</label>
+          <div class="col-md-4">
+            <label class="form-label fw-semibold">检测时间（ms）</label>
             <input type="number" class="form-control" id="ev-time" value="0" placeholder="0 表示立即触发">
           </div>
           <div class="col-12">
-            <label class="form-label fw-semibold">描述</label>
+            <label class="form-label fw-semibold">告警描述</label>
             <input type="text" class="form-control" id="ev-desc" placeholder="事件描述">
           </div>
         </div>

@@ -12,25 +12,11 @@ import (
 	"thingsmodel/internal/store"
 )
 
-// Processor 是归一化之后、发布之前的处理管道扩展点。
-// 清洗、聚合、筛选与业务逻辑（如告警生成、存储转发路由）以 stage 形式插入，
-// 返回 keep=false 丢弃该条消息，否则以 output 继续向下游传递。
-type Processor interface {
-	Process(FanoutMessage) (keep bool, output FanoutMessage)
-}
-
-// passthroughProcessor 是默认的透传 stage，保持链路语义不变。
-type passthroughProcessor struct{}
-
-func (passthroughProcessor) Process(message FanoutMessage) (bool, FanoutMessage) { return true, message }
-
 // Manager keeps data processing available while its NATS clients are replaced or restarted.
 type Manager struct {
-	ctx         context.Context
-	registry    *Registry
-	log         *slog.Logger
-	processors  []Processor
-	passthrough passthroughProcessor
+	ctx      context.Context
+	registry *Registry
+	log      *slog.Logger
 
 	mu         sync.RWMutex
 	subscriber *natsclient.Subscriber
@@ -55,22 +41,11 @@ func NewManager(ctx context.Context, settings config.App) (*Manager, error) {
 	return manager, nil
 }
 
-// UseProcessors 替换处理管道；空列表等价于透传。
-func (m *Manager) UseProcessors(processors []Processor) {
-	if len(processors) == 0 {
-		m.processors = nil
-		return
-	}
-	m.processors = processors
-}
-
 func (m *Manager) Apply(configs []store.DeviceConfig) { m.registry.Apply(configs) }
 
 func (m *Manager) Remove(id string) { m.registry.Remove(id) }
 
 func (m *Manager) Snapshot() []DeviceStatus { return m.registry.Snapshot() }
-
-func (m *Manager) Get(id string) (DeviceStatus, bool) { return m.registry.Get(id) }
 
 func (m *Manager) Sources() []SourceDevice { return m.registry.Sources() }
 
@@ -180,27 +155,8 @@ func (m *Manager) handleTelemetry(data natsclient.MessageData, receivedAt time.T
 		return
 	}
 	for _, message := range output {
-		keep, processed := m.runProcessors(message)
-		if !keep {
-			continue
-		}
-		publisher.PublishData(normalizeMessage(processed))
+		publisher.PublishData(normalizeMessage(message))
 	}
-}
-
-func (m *Manager) runProcessors(message FanoutMessage) (bool, FanoutMessage) {
-	processors := m.processors
-	if len(processors) == 0 {
-		processors = []Processor{m.passthrough}
-	}
-	for _, processor := range processors {
-		keep, output := processor.Process(message)
-		if !keep {
-			return false, FanoutMessage{}
-		}
-		message = output
-	}
-	return true, message
 }
 
 // normalizeMessage converts one fan-out payload to the wire contract.

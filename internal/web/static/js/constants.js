@@ -8,7 +8,7 @@ const LOGIN_PASS = '666';
 // 向导步骤定义（档案信息 → 属性配置 → 服务配置 → 告警配置 → 预览）
 const WIZARD_STEPS = [
   { key: 'profile',     title: '档案信息配置', sub: '填写物模型模板的基础档案信息', icon: 'bi-card-text' },
-  { key: 'properties',  title: '属性配置',     sub: '定义设备的属性数据点（数值/枚举）', icon: 'bi-sliders' },
+  { key: 'properties',  title: '属性配置',     sub: '定义设备的属性数据点（数据/状态）', icon: 'bi-sliders' },
   { key: 'methods',     title: '服务配置',     sub: '定义设备可被调用的方法/服务',     icon: 'bi-gear' },
   { key: 'events',      title: '告警配置',     sub: '定义设备的告警/事件触发规则',    icon: 'bi-bell' },
   { key: 'preview',     title: '预览',         sub: '确认物模型配置并导出保存',       icon: 'bi-eye' }
@@ -22,8 +22,8 @@ const DEVICE_WIZARD_STEPS = [
   { key: 'preview', title: '预览保存', sub: '检查并保存设备实例配置', icon: 'bi-eye' }
 ];
 
-// 属性聚合方法枚举（模板说明.md）
-const BINDING_METHODS = ['EPT', 'SUM', 'AVG', 'MIN', 'MAX', 'AND', 'OR', 'NOT'];
+// 属性聚合方法列表（模板说明.md），默认 ept
+const BINDING_METHODS = ['ept', 'sum', 'avg', 'min', 'max', 'and', 'or', 'not'];
 
 // 事件告警级别
 const EVENT_LEVELS = [
@@ -75,6 +75,6 @@ function emptyDraft() {
 function emptyDeviceDraft() {
   return {
     id: '', name: '', templateCode: '', templateVersion: '', description: '', enabled: true,
-    properties: [], methods: [], events: []
+    properties: [], methods: [], events: { rule: [], binding: [] }
   };
 }

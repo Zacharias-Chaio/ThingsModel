@@ -33,7 +33,6 @@ func NewRouter(srv *api.Server) http.Handler {
 		r.Post("/restart", srv.Restart)
 		r.Get("/templates", srv.ListTemplates)
 		r.Post("/templates", srv.SaveTemplate)
-		r.Post("/templates/scan", srv.ScanTemplates)
 		r.Get("/templates/{code}", srv.GetTemplate)
 		r.Delete("/templates/{code}", srv.DeleteTemplate)
 		r.Get("/devices", srv.ListDevices)
@@ -41,7 +40,6 @@ func NewRouter(srv *api.Server) http.Handler {
 		r.Get("/devices/{id}", srv.GetDevice)
 		r.Delete("/devices/{id}", srv.DeleteDevice)
 		r.Get("/runtime/devices", srv.ListRuntimeDevices)
-		r.Get("/runtime/devices/{id}", srv.GetRuntimeDevice)
 		r.Get("/runtime/sources", srv.ListSources)
 	})
 

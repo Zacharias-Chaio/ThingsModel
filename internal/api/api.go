@@ -11,6 +11,7 @@ import (
 
 	"gorm.io/gorm"
 )
+
 // Server REST 处理器容器，依赖注入 TemplateStore。
 type Server struct {
 	Templates *store.TemplateStore
@@ -25,7 +26,6 @@ type RuntimeFacade interface {
 	Apply([]store.DeviceConfig)
 	Remove(id string)
 	Snapshot() []runtime.DeviceStatus
-	Get(id string) (runtime.DeviceStatus, bool)
 }
 
 // RuntimeAdmin exposes the restartable message-bus lifecycle without coupling handlers to its implementation.

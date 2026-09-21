@@ -163,7 +163,13 @@ body {
 .progress-bar { background: var(--primary); }
 .binding-table th { min-width: 100px; }
 .binding-source-list { display: grid; gap: 6px; }
-.binding-source-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) 32px; gap: 6px; }
+.binding-source-row { display: grid; grid-template-columns: minmax(90px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1.3fr) minmax(130px, 1.4fr); gap: 6px; }
+.binding-source-row.has-remove { grid-template-columns: minmax(90px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1.3fr) minmax(130px, 1.4fr) 32px; }
+/* 属性映射操作列：删除列随来源数增减，添加列每个模板属性一个 + 号 */
+.binding-del { display: flex; flex-direction: column; gap: 6px; width: 44px; }
+.binding-del-btn { width: 34px; }
+.binding-add { width: 44px; vertical-align: top; }
+.binding-add-btn { width: 34px; }
 
 /* ===== Runtime dashboard ===== */
 .runtime-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 16px; }
@@ -187,6 +193,11 @@ body {
 .runtime-tabs button { border: 0; border-bottom: 2px solid transparent; padding: 8px 2px; background: transparent; color: var(--muted-color); font-size: 13px; }
 .runtime-tabs button.active { border-color: var(--primary); color: var(--primary); font-weight: 600; }
 .runtime-table { margin-bottom: 0; }
+.invoke-control { display: flex; gap: 8px; align-items: center; max-width: 280px; }
+.invoke-control .form-control, .invoke-control .form-select { max-width: 150px; }
+.alarm-rule-brief { font-size: 12.5px; color: var(--text-color); line-height: 1.7; }
+.alarm-rule-brief::before { content: '·'; color: var(--muted-color); margin-right: 6px; }
+.method-chip { display: inline-block; margin-top: 4px; border-radius: 20px; padding: 1px 8px; font-size: 11px; font-weight: 600; background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); }
 
 /* ===== Empty State ===== */
 .empty-state {
@@ -230,6 +241,9 @@ body {
 .step-connector.done { background: var(--success); }
 
 /* ===== Wizard ===== */
+.wizard-back-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.wizard-back-bar .wb-title { font-weight: 700; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wizard-back-bar .wb-sub { font-size: 12.5px; color: var(--muted-color); }
 .wizard-wrapper {
   display: flex; align-items: stretch; gap: 12px; align-items: center;
 }
@@ -288,6 +302,11 @@ body {
 .badge-w  { background: #d1fae5; color: #065f46; }
 .badge-rw { background: #dbeafe; color: #1e40af; }
 .badge-pill { border-radius: 20px; padding: 3px 9px; font-size: 11.5px; font-weight: 600; }
+
+/* ===== 状态值配置（属性 status 类型）===== */
+.status-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 40px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.status-row-head { font-size: 12px; font-weight: 600; color: var(--muted-color); margin-bottom: 2px; }
+.status-row .btn { padding: 6px 10px; }
 
 /* 告警级别徽标 */
 .alarm-level-0 { background: #dbeafe; color: #1e40af; }
@@ -378,8 +397,9 @@ body {
   .summary-grid { grid-template-columns: 1fr; }
   .runtime-layout { grid-template-columns: 1fr; }
   .runtime-device-list { min-height: auto; }
-  .binding-source-row { grid-template-columns: 1fr; }
+  .binding-source-row, .binding-source-row.has-remove { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .binding-source-row .btn { width: 32px; }
+  .binding-del { flex-direction: row; flex-wrap: wrap; width: auto; }
   .settings-grid { grid-template-columns: 1fr; }
 }
 
