@@ -40,8 +40,8 @@ function runtimeMethods(rows) {
   return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>服务</th><th>状态</th><th>工程值下发</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${runtimeStatusBadge(row.status)}</td><td>${methodInvokeControl(row)}</td></tr>`).join('') || '<tr><td colspan="3" class="text-center text-muted py-4">暂无服务</td></tr>'}</tbody></table></div>`;
 }
 
-// 服务下发控件：number 填写工程值（带范围提示），status 选择状态；未绑定的服务不提供控件。
-// 下发链路（API 端点 + 网关命令契约）下一阶段接入。
+// 服务下发控件：number 填写工程值（带范围提示），status 选择状态。
+// 下发链路：POST /runtime/devices/{id}/methods/{key} → 网关 .cmd（REQ/REP）→ cmdAck 终态轮询。
 function methodInvokeControl(row) {
   if (row.status !== 'configured') return '<span class="text-muted">—</span>';
   const key = escapeHtml(row.key);
@@ -58,24 +58,55 @@ function methodInvokeControl(row) {
   return '<span class="text-muted">—</span>';
 }
 
-// 读取并校验下发输入；下发链路（API 端点 + 网关命令契约）下一阶段接入。
-function invokeMethod(key) {
+// 读取、校验下发输入并发起真实下发：
+// POST /runtime/devices/{id}/methods/{key} → 南向 .cmd REQ/REP（受理）→ cmdAck 异步终态轮询。
+async function invokeMethod(key) {
   const device = state.runtimeDevices.find(item => item.id === state.runtimeSelectedId);
   const method = device && (device.methods || []).find(m => m.key === key);
-  if (!method) return;
+  if (!device || !method) return;
   const el = document.getElementById('invoke-' + key);
   if (!el) return;
+  let value = null;
   if (method.type === 'number') {
-    const value = parseFloat(el.value);
+    value = parseFloat(el.value);
     if (el.value === '' || isNaN(value)) { toast('请输入数字工程值', 'error'); return; }
     const v = method.validation;
     if (v && v.min < v.max && (value < v.min || value > v.max)) { toast(`工程值需在 ${v.min} ~ ${v.max} 范围内`, 'error'); return; }
-    toast(`下发链路下一阶段接入：${method.name} = ${value}`);
   } else {
     const desc = (method.descriptions || [])[parseInt(el.value, 10)];
     if (!desc) { toast('请选择状态值', 'error'); return; }
-    toast(`下发链路下一阶段接入：${method.name} = ${desc.name}（工程值 ${desc.value}）`);
+    value = parseFloat(desc.value);
+    if (isNaN(value)) { toast(`状态「${desc.name}」未配置工程值，无法下发`, 'error'); return; }
   }
+  let record;
+  try {
+    record = await RuntimeAPI.invoke(device.id, key, value);
+  } catch (e) {
+    toast(e.message, 'error');
+    return;
+  }
+  if (record.acceptedStatus !== 'accepted') {
+    toast(`网关拒绝指令：${record.acceptedMessage || record.acceptedStatus || '未知原因'}`, 'error');
+    return;
+  }
+  toast(`指令已受理（${method.name} = ${value}），等待网关执行回报…`);
+  pollCommandResult(record.requestId, method.name);
+}
+
+// 轮询命令终态：cmdAck 由网关复用 .data 主题异步回报，最长等待 32s。
+async function pollCommandResult(requestId, methodName) {
+  for (let i = 0; i < 16; i++) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    let record;
+    try {
+      record = await RuntimeAPI.command(requestId);
+    } catch (e) {
+      continue; // 单次轮询失败（如命令记录截断）不中断等待
+    }
+    if (record.finalStatus === 'success') { toast(`${methodName} 指令执行成功`); return; }
+    if (record.finalStatus === 'failure') { toast(`${methodName} 指令执行失败：${record.finalMessage || '网关回报失败'}`, 'error'); return; }
+  }
+  toast(`${methodName} 执行回报超时，请检查网关状态`, 'error');
 }
 function runtimeEvents(rows) {
   return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>检测点位</th><th>点位名称</th><th>当前工程值</th><th>告警规则简要</th><th>级别</th><th>状态</th></tr></thead><tbody>${(rows || []).map(row => {

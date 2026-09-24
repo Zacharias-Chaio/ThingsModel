@@ -284,6 +284,17 @@ body {
 }
 .info-banner span.text-muted { color: #475569 !important; }
 
+/* ===== 绑定校验结论横幅：单行横向标签，展示在设备列表上方 ===== */
+.binding-banner {
+  display: flex; align-items: center; flex-wrap: wrap;
+  border-radius: 10px; padding: 10px 16px; font-size: 13.5px;
+  margin-bottom: 14px; border: 1px solid transparent;
+}
+.binding-banner.loading { background: #f8fafc; border-color: var(--border-color); color: #64748b; }
+.binding-banner.ok      { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+.binding-banner.warn    { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+.binding-banner.error   { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
 /* ===== Form Section Divider ===== */
 .form-section-divider {
   display: flex; align-items: center; margin: 22px 0 14px;

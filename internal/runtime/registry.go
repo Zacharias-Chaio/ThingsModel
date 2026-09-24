@@ -240,6 +240,104 @@ func (r *Registry) Sources() []SourceDevice {
 	return out
 }
 
+// BindingRef 枚举一条已配置的绑定引用（属性来源 / 服务点位 / 告警检测点位），
+// 供拓扑校验比对：网关侧 channel_index / device_index 是否仍存在、属性是否仍在点表中。
+type BindingRef struct {
+	DeviceID     string
+	DeviceName   string
+	Kind         string // property | method | alarm
+	Key          string
+	Name         string
+	GatewayID    string
+	ChannelIndex int
+	DeviceIndex  int
+	PropertyID   string
+}
+
+// BindingRefs 返回当前所有已配置绑定的扁平列表（只读，含未启用设备）。
+func (r *Registry) BindingRefs() []BindingRef {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]BindingRef, 0)
+	for id, device := range r.devices {
+		for _, property := range device.config.Properties {
+			for _, source := range property.Binding.Sources {
+				if source.GatewayID == "" {
+					continue
+				}
+				out = append(out, BindingRef{DeviceID: id, DeviceName: device.config.Name, Kind: "property", Key: property.Key, Name: property.Name,
+					GatewayID: source.GatewayID, ChannelIndex: source.ChannelID, DeviceIndex: source.DeviceID, PropertyID: source.PropertyID})
+			}
+		}
+		for _, method := range device.config.Methods {
+			if method.Binding.GatewayID == "" {
+				continue
+			}
+			out = append(out, BindingRef{DeviceID: id, DeviceName: device.config.Name, Kind: "method", Key: method.Key, Name: method.Name,
+				GatewayID: method.Binding.GatewayID, ChannelIndex: method.Binding.ChannelID, DeviceIndex: method.Binding.DeviceID, PropertyID: method.Binding.PropertyID})
+		}
+		for _, binding := range device.config.Events.Binding {
+			if binding.Point.GatewayID == "" {
+				continue
+			}
+			out = append(out, BindingRef{DeviceID: id, DeviceName: device.config.Name, Kind: "alarm", Key: strings.Join(binding.Rules, "+"), Name: strings.Join(binding.Rules, "+"),
+				GatewayID: binding.Point.GatewayID, ChannelIndex: binding.Point.ChannelID, DeviceIndex: binding.Point.DeviceID, PropertyID: binding.Point.PropertyID})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].DeviceID != out[j].DeviceID {
+			return out[i].DeviceID < out[j].DeviceID
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Key < out[j].Key
+	})
+	return out
+}
+
+// Method 返回设备某个服务（方法）的模板快照（含下发绑定配置），供控制下发链路定位点位。
+func (r *Registry) Method(deviceID, key string) (store.Method, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	device, ok := r.devices[deviceID]
+	if !ok {
+		return store.Method{}, false
+	}
+	for _, method := range device.config.Methods {
+		if method.Key == key {
+			return method, true
+		}
+	}
+	return store.Method{}, false
+}
+
+// PointName 解析一个绑定点位在上游遥测中的属性名称（网关 MessageCmd 以属性名下发）。
+// 来源尚未接入或点位不存在时回退为 propertyID 本身。
+func (r *Registry) PointName(gatewayID string, channelIndex, deviceIndex int, propertyID string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	source, ok := r.sources[SourceID(gatewayID, channelIndex, deviceIndex)]
+	if !ok {
+		return propertyID
+	}
+	if property, ok := source.Properties[propertyID]; ok && property.Name != "" {
+		return property.Name
+	}
+	return propertyID
+}
+
+// DeviceName 返回设备展示名（供命令记录等用途）。
+func (r *Registry) DeviceName(deviceID string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	device, ok := r.devices[deviceID]
+	if !ok {
+		return "", false
+	}
+	return device.config.Name, true
+}
+
 // ResetLiveData clears received source values and active event state while preserving device configuration.
 func (r *Registry) ResetLiveData() {
 	r.mu.Lock()

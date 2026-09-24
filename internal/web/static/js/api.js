@@ -40,6 +40,14 @@ const DevicesAPI = {
 const RuntimeAPI = {
   list: ()    => apiGet('/runtime/devices'),
   sources: () => apiGet('/runtime/sources'),
+  // 网关拓扑发现（不带 gatewayId 时查询全部订阅网关）
+  topology: (gatewayId) => apiGet('/runtime/topology' + (gatewayId ? '?gatewayId=' + encodeURIComponent(gatewayId) : '')),
+  // 绑定校验：把已配置绑定与网关最新拓扑比对
+  bindingCheck: () => apiGet('/runtime/binding-check'),
+  // 控制下发：服务点位写命令（REQ/REP 受理 + cmdAck 异步终态）
+  invoke: (deviceId, methodKey, value) => apiPost(`/runtime/devices/${encodeURIComponent(deviceId)}/methods/${encodeURIComponent(methodKey)}`, { value }),
+  // 命令状态查询（轮询终态）
+  command: (requestId) => apiGet(`/runtime/commands/${encodeURIComponent(requestId)}`),
 };
 
 const SettingsAPI = {

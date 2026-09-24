@@ -41,6 +41,10 @@ func NewRouter(srv *api.Server) http.Handler {
 		r.Delete("/devices/{id}", srv.DeleteDevice)
 		r.Get("/runtime/devices", srv.ListRuntimeDevices)
 		r.Get("/runtime/sources", srv.ListSources)
+		r.Get("/runtime/topology", srv.GetTopology)
+		r.Get("/runtime/binding-check", srv.CheckBindings)
+		r.Post("/runtime/devices/{id}/methods/{key}", srv.InvokeDeviceMethod)
+		r.Get("/runtime/commands/{requestId}", srv.GetCommand)
 	})
 
 	// 静态资源（嵌入式），"/*" 同时覆盖根路径

@@ -14,7 +14,10 @@ flowchart LR
 
 ## 配置
 
-平台设置统一持久化在 SQLite 数据库的配置表中（首次启动写入默认配置）。Web 的 `GET/POST /api/settings` 直接读取和写回数据库。数据订阅与内容发布是两个独立的 NATS 客户端，各自持有连接与重连参数，可指向不同的 NATS 服务器。
+平台设置统一持久化在 SQLite 数据库的配置表中（首次启动写入默认配置）。Web 的 `GET/POST /api/settings` 直接读取和写回数据库。南向（SouthClient）与北向（NorthClient）是两个独立的 NATS 客户端，各自持有连接与重连参数，可指向不同的 NATS 服务器：
+
+- **SouthClient（南向，面向网关）**：订阅 `{inputPrefix}.{gatewayId}.data` 消费遥测；作为请求方调用 `{inputPrefix}.{gatewayId}.cmd`（控制下发）与 `{inputPrefix}.{gatewayId}.query`（拓扑查询），均使用 REQ/REP；
+- **NorthClient（北向，面向下游）**：发布归一化数据到 `powerpulse.thingsmodel.{softwareId}.data`；预留控制直通入口 `SendCommand`。
 
 ```json
 {
@@ -38,12 +41,13 @@ flowchart LR
 
 ## 输入契约
 
-输入严格使用 Gateway-Modbus 已发布的 Core NATS 主题和信封：
+输入严格使用 Gateway-Modbus 已发布的 Core NATS 主题和信封（详见网关侧 [nats-client-design.md](nats-client-design.md) 与 [message-contract-design.md](message-contract-design.md)）：
 
-- Subject：`{input_subject_prefix}.{gateway_id}.data`
-- Headers：`PP-Message-ID`、`PP-Message-Type=data`、`PP-Message-Version=v1.0`、`PP-Message-Timestamp`
-- Payload：Gateway 的 `MessageData` JSON，其中属性位于 `properties[property_id]`。
+- Subject：`{input_subject_prefix}.{gateway_id}.data`（遥测）、`.cmd`（控制）、`.query`（拓扑查询）
+- Headers：`PP-Message-ID`、`PP-Message-Type=data|cmd|cmdAck|query`、`PP-Message-Version=v1.0`、`PP-Message-Timestamp`
+- Payload：`.data` 为 Gateway 的 `MessageData` JSON（属性位于 `properties[property_id]`）；`.cmd` 请求/应答为 `MessageCmd`/`MessageAck`；`.query` 为 `MessageQuery`/`MessageQueryResp`。
 - 每条遥测为该采集设备的**全量刷新**：`properties` 是设备当前完整的点位集，按消息整体替换。消息中未包含的点位视为不存在（绑定该点位的属性值显示为空，不保留历史值）。
+- 设备掉线时 `properties` 仅含虚拟属性"在线状态"=0；单属性解析异常时保留键但 `value=null`（归一化为 `invalid` 质量）。
 
 来源目录 API `GET /api/runtime/sources` 返回每个已发现来源及其属性。来源按 `gatewayId` / `channelId` / `deviceId` / `propertyId` 四级字段定位（通道与设备为上游网关内索引，从 0 开始），绑定允许留空表示未绑定。
 
@@ -93,6 +97,24 @@ flowchart LR
   "timestamp": 1789344000000
 }
 ```
+
+## 控制与查询链路（南向 REQ/REP）
+
+- **拓扑查询**：`SouthClient.QueryTopology(ctx, gatewayId)` → `.query` 主题 REQ/REP，一次返回该网关全量拓扑（通道 + 设备 + 数据点表），不含实时值；
+- **控制下发**：`SouthClient.SendCommand(ctx, gatewayId, cmd)` → `.cmd` 主题 REQ/REP，同步应答 `accepted`（已入网关引擎写队列）或 `failure`（路由/参数错误）；
+- **异步终态**：网关执行完成后复用 `.data` 主题发布 `type=cmdAck` 的 `MessageAck`（同 `request_id`），SouthClient 按 pending 表匹配等待者并回调；超过 30s 未收到回报按超时 failure 终态清理。
+
+### 客户端直通（进程内，不经 NATS 主题）
+
+未来其他模块把控制消息发给北向后，指令经**进程内直调**直达南向客户端，再发往网关；两客户端之间不通过消息主题交互：
+
+```
+其他模块(未来入口) → NorthClient.SendCommand
+    ──进程内直调 CommandDispatcher──▶ SouthClient.DispatchCommand
+    ──REQ/REP .cmd──▶ 网关 ──cmdAck(.data)──▶ SouthClient ──回调──▶ NorthClient 侧
+```
+
+本期仅落地 `CommandDispatcher` 接口与 Manager 接线（热重载后自动重接线），北向控制入口（主题订阅或 HTTP）下一期接入。
 
 ## 热加载
 

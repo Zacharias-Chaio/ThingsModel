@@ -18,6 +18,89 @@ async function loadSources() {
   }
 }
 
+// ===== 网关拓扑发现：把 .query 拓扑合并进来源目录 =====
+// 遥测驱动的来源目录在网关不发数据时为空；拓扑发现让绑定页立即可选，
+// 也为已有设备补全缺失属性（网关调整挂载顺序后可重新发现并对照）。
+async function discoverFromTopology() {
+  let results;
+  try {
+    results = await RuntimeAPI.topology() || [];
+  } catch (e) {
+    toast(e.message, 'error');
+    return;
+  }
+  const merged = mergeTopologyIntoSources(results);
+  const failures = results.filter(r => !r.ok);
+  if (merged.addedDevices || merged.addedProps) {
+    toast(`拓扑发现完成：新增 ${merged.addedDevices} 台设备、${merged.addedProps} 个属性点${failures.length ? `（${failures.length} 个网关查询失败）` : ''}`);
+  } else if (failures.length === results.length) {
+    toast('所有网关拓扑查询失败：' + (failures[0].message || '未知错误'), 'error');
+  } else {
+    toast('拓扑与当前来源目录一致，无新增设备' + (failures.length ? `（${failures.length} 个网关查询失败）` : ''));
+  }
+  if (state.deviceStep >= 1 && state.deviceDraft) renderDeviceWizard();
+}
+
+function mergeTopologyIntoSources(results) {
+  let addedDevices = 0, addedProps = 0;
+  results.forEach(result => {
+    if (!result.ok || !result.topology) return;
+    const gatewayId = result.gatewayId;
+    (result.topology.channels || []).forEach(channel => {
+      (channel.devices || []).forEach(device => {
+        let source = state.sources.find(s => s.gatewayId === gatewayId && s.channelIndex === channel.channelIndex && s.deviceIndex === device.index);
+        if (!source) {
+          source = { gatewayId, gatewaySn: '', channelIndex: channel.channelIndex, deviceIndex: device.index, deviceName: device.name, commNo: 0, modelId: '', modelName: channel.name || '拓扑发现', lastSeen: null, properties: [] };
+          state.sources.push(source);
+          addedDevices++;
+        }
+        (device.datasheet || []).forEach(entry => {
+          if (!source.properties.some(p => p.id === entry.data_id)) {
+            source.properties.push({ id: entry.data_id, name: entry.data_name, accessMode: entry.data_rw });
+            addedProps++;
+          }
+        });
+      });
+    });
+  });
+  return { addedDevices, addedProps };
+}
+
+// ===== 绑定校验：已配置绑定 vs 网关最新拓扑 =====
+// 校验结论以单行横向标签展示在设备列表上方，不用弹窗、不渲染列表。
+async function checkDeviceBindings() {
+  renderBindingBanner('loading');
+  let data;
+  try {
+    data = await RuntimeAPI.bindingCheck();
+  } catch (e) {
+    renderBindingBanner('error', '绑定校验失败：' + e.message);
+    return;
+  }
+  const summary = data.summary || { total: 0, ok: 0, invalid: 0, unchecked: 0, unreachable: 0 };
+  if (!summary.total) {
+    renderBindingBanner('ok', '尚无已配置的绑定，无需校验');
+    return;
+  }
+  if (summary.invalid === 0 && summary.unreachable === 0) {
+    renderBindingBanner('ok', `绑定校验通过：${summary.ok}/${summary.total} 条引用有效${summary.unchecked ? `，${summary.unchecked} 条无法校验属性` : ''}`);
+  } else {
+    renderBindingBanner('warn', `绑定校验发现异常：有效 ${summary.ok} · 失效 ${summary.invalid} · 网关不可达 ${summary.unreachable}（共 ${summary.total} 条）。请检查后重新绑定失效项`);
+  }
+}
+
+// 渲染单行结论横幅：loading=校验中，ok=通过，warn=有异常，error=请求失败。
+function renderBindingBanner(kind, text) {
+  const banner = document.getElementById('binding-check-banner');
+  if (!banner) return;
+  if (kind === 'loading') {
+    banner.innerHTML = '<div class="binding-banner loading"><i class="bi bi-arrow-repeat me-2"></i>正在查询各网关拓扑并校验绑定…</div>';
+    return;
+  }
+  const icons = { ok: 'bi-check-circle-fill', warn: 'bi-exclamation-triangle-fill', error: 'bi-x-circle-fill' };
+  banner.innerHTML = `<div class="binding-banner ${kind}"><i class="bi ${icons[kind] || 'bi-info-circle'} me-2"></i>${escapeHtml(text || '')}</div>`;
+}
+
 function renderDeviceList() {
   const grid = document.getElementById('device-grid');
   if (!grid) return;
@@ -249,7 +332,7 @@ function devicePropertiesBody() {
       <button class="btn btn-sm btn-outline-danger binding-del-btn" onclick="removePropertySource(${index},${sourceIndex})" title="删除来源"><i class="bi bi-trash"></i></button>`).join('');
     return `<tr><td><strong>${escapeHtml(property.name)}</strong><div><code>${escapeHtml(property.key)}</code></div></td><td>${typeBadge(property.type)}</td><td><select class="form-select form-select-sm" onchange="setPropertyBindingMethod(${index}, this.value)">${methods.map(method => `<option value="${method}" ${binding.method === method ? 'selected' : ''}>${method}</option>`).join('')}</select></td><td><div class="binding-source-list">${sourceRows}</div></td><td class="binding-del">${dels}</td><td class="binding-add"><button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addPropertySource(${index})" title="添加来源"><i class="bi bi-plus-lg"></i></button></td></tr>`;
   }).join('');
-  return `<div class="info-banner"><i class="bi bi-sliders me-2" style="color:var(--primary)"></i><span class="text-muted">状态属性仅支持 ept；数值属性可选择聚合方法并配置多个来源。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>模板属性</th><th>类型</th><th>方法</th><th>实际来源（网关 / 通道 / 设备 / 属性）</th><th class="text-center">删除</th><th class="text-center">添加</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-muted py-4">模板没有属性</td></tr>'}</tbody></table></div>`;
+  return `<div class="info-banner"><i class="bi bi-sliders me-2" style="color:var(--primary)"></i><span class="text-muted">状态属性仅支持 ept；数值属性可选择聚合方法并配置多个来源。</span><button class="btn btn-outline-primary btn-sm ms-auto flex-shrink-0" onclick="discoverFromTopology()" title="通过网关查询接口获取通道/设备拓扑，合并进来源目录"><i class="bi bi-diagram-3 me-1"></i>发现设备</button></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>模板属性</th><th>类型</th><th>方法</th><th>实际来源（网关 / 通道 / 设备 / 属性）</th><th class="text-center">删除</th><th class="text-center">添加</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-muted py-4">模板没有属性</td></tr>'}</tbody></table></div>`;
 }
 
 // ===== 上游点位级联选择：网关ID → 通道ID → 设备ID → 属性ID =====
