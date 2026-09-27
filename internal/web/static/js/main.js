@@ -37,8 +37,23 @@ function enterApp() {
   document.getElementById('login-err').classList.add('d-none');
   document.getElementById('login-overlay').classList.add('d-none');
   document.getElementById('app-shell').classList.remove('d-none');
+  // 侧栏版本号改为动态读取后端 buildinfo.Version
+  loadSidebarVersion();
   // 加载模板列表后渲染
   loadTemplates().then(() => switchSection('templates'));
+}
+
+// 动态加载侧栏软件版本号（与后端 /api/system-info 的 thingsModelVersion 保持一致）
+async function loadSidebarVersion() {
+  try {
+    const info = await SettingsAPI.system();
+    const el = document.getElementById('sidebar-version');
+    if (el && info && info.thingsModelVersion) {
+      el.textContent = info.thingsModelVersion;
+    }
+  } catch (_) {
+    // 请求失败时保留默认占位版本，避免遮挡界面初始化
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -453,7 +453,7 @@ func (m *Manager) Stop() {
 }
 
 // handleTelemetry 是南向客户端的入口：Registry 摄取归一化后，
-// 依次经过处理管道，最终交给内容发布客户端扇出。
+// 依次经过处理管道，最终交给北向客户端扇出。
 func (m *Manager) handleTelemetry(data natsclient.MessageData, receivedAt time.Time) {
 	properties := make(map[string]SourceProperty, len(data.Properties))
 	for id, property := range data.Properties {

@@ -81,13 +81,13 @@ func NewNorthClient(ctx context.Context, app config.App) (*NorthClient, error) {
 		nats.ReconnectBufSize(northConfig.ReconnectBufSize),
 		nats.PingInterval(milliseconds(northConfig.PingInterval, 20*time.Second)),
 		nats.MaxPingsOutstanding(northConfig.MaxPingsOut),
-		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) { log.Warn("内容发布连接已断开", "error", err) }),
-		nats.ReconnectHandler(func(connection *nats.Conn) { log.Info("内容发布连接已重连", "url", connection.ConnectedUrl()) }),
-		nats.ClosedHandler(func(connection *nats.Conn) { log.Warn("内容发布连接已关闭", "error", connection.LastError()) }),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) { log.Warn("北向连接已断开", "error", err) }),
+		nats.ReconnectHandler(func(connection *nats.Conn) { log.Info("北向连接已重连", "url", connection.ConnectedUrl()) }),
+		nats.ClosedHandler(func(connection *nats.Conn) { log.Warn("北向连接已关闭", "error", connection.LastError()) }),
 	}
 	connection, err := nats.Connect(northConfig.URL, options...)
 	if err != nil {
-		return nil, fmt.Errorf("连接内容发布 NATS: %w", err)
+		return nil, fmt.Errorf("连接北向 NATS: %w", err)
 	}
 	client.conn = connection
 	go client.publishLoop(ctx)
@@ -145,7 +145,7 @@ func (p *NorthClient) enqueue(message outbound) {
 	}
 	select {
 	case <-p.events:
-		p.log.Warn("内容发布队列已满，丢弃最旧消息")
+		p.log.Warn("北向连接队列已满，丢弃最旧消息")
 	default:
 	}
 	p.events <- message
@@ -159,7 +159,7 @@ func (p *NorthClient) Close() {
 		p.eventsMu.Unlock()
 		<-p.done
 		if err := p.conn.Drain(); err != nil {
-			p.log.Warn("内容发布 Drain 失败", "error", err)
+			p.log.Warn("北向连接 Drain 失败", "error", err)
 			p.conn.Close()
 		}
 	})

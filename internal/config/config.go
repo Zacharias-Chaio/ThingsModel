@@ -22,7 +22,7 @@ type Software struct {
 	Name string `json:"name"`
 }
 
-// Subscriber 配置数据订阅客户端：只负责消费网关遥测。
+// Subscriber 配置南向客户端：只负责消费网关遥测。
 type Subscriber struct {
 	Enabled              bool   `json:"enabled"`
 	URL                  string `json:"url"`
@@ -36,7 +36,7 @@ type Subscriber struct {
 	MaxPingsOut          int    `json:"maxPingsOut"`
 }
 
-// Publisher 配置内容发布客户端：负责把归一化数据与业务消息发布给下游。
+// Publisher 配置北向客户端：负责把归一化数据与业务消息发布给下游。
 type Publisher struct {
 	Enabled              bool   `json:"enabled"`
 	URL                  string `json:"url"`
@@ -88,17 +88,17 @@ func Validate(app App) error {
 	}
 	subscriber := app.Subscriber
 	if subscriber.Enabled && (strings.TrimSpace(subscriber.URL) == "" || strings.TrimSpace(subscriber.InputSubjectPrefix) == "") {
-		return fmt.Errorf("启用数据订阅时必须填写服务地址和输入主题前缀")
+		return fmt.Errorf("启用南向连接时必须填写服务地址和输入主题前缀")
 	}
 	if subscriber.ConnectTimeout < 0 || subscriber.ReconnectWait < 0 || subscriber.PingInterval < 0 || subscriber.MaxPingsOut < 0 || subscriber.MaxReconnects < -1 {
-		return fmt.Errorf("数据订阅数值配置无效")
+		return fmt.Errorf("南向连接数值配置无效")
 	}
 	publisher := app.Publisher
 	if publisher.Enabled && strings.TrimSpace(publisher.URL) == "" {
-		return fmt.Errorf("启用内容发布时必须填写服务地址")
+		return fmt.Errorf("启用北向连接时必须填写服务地址")
 	}
 	if publisher.QueueSize < 1 || publisher.ConnectTimeout < 0 || publisher.ReconnectWait < 0 || publisher.ReconnectBufSize < 0 || publisher.PingInterval < 0 || publisher.MaxPingsOut < 0 || publisher.MaxReconnects < -1 {
-		return fmt.Errorf("内容发布数值配置无效")
+		return fmt.Errorf("北向连接数值配置无效")
 	}
 	if app.StaleAfter < 0 {
 		return fmt.Errorf("数据过期时长不能小于 0")

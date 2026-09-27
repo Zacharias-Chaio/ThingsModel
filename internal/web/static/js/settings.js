@@ -11,8 +11,8 @@ const SETTINGS_CARDS = [
     { path: 'logger.fileConfig.maxAge', label: '保留天数', type: 'number', min: 0 },
     { path: 'logger.fileConfig.compress', label: '压缩归档', type: 'boolean' },
   ] },
-  { icon: 'broadcast-pin', title: '数据订阅', subtitle: '订阅网关遥测输入', fields: [
-    { path: 'subscriber.enabled', label: '启用订阅', type: 'boolean' },
+  { icon: 'broadcast-pin', title: '南向采集', subtitle: '订阅网关遥测输入', fields: [
+    { path: 'subscriber.enabled', label: '启用连接', type: 'boolean' },
     { path: 'subscriber.url', label: '服务地址' },
     { path: 'subscriber.name', label: '连接名称' },
     { path: 'subscriber.inputSubjectPrefix', label: '输入主题前缀', hint: '网关数据主题：{前缀}.{gatewayId}.data' },
@@ -24,8 +24,8 @@ const SETTINGS_CARDS = [
     { path: 'subscriber.maxPingsOut', label: '最大未响应心跳数', type: 'number', min: 0 },
     { path: 'staleAfter', label: '数据过期时长 (ms)', type: 'number', min: 0, hint: '0 表示不因时间标记数据过期。' },
   ] },
-  { icon: 'send', title: '内容发布', subtitle: '归一化数据与业务消息扇出', fields: [
-    { path: 'publisher.enabled', label: '启用发布', type: 'boolean' },
+  { icon: 'send', title: '北向转发', subtitle: '发布归一化数据给下游', fields: [
+    { path: 'publisher.enabled', label: '启用连接', type: 'boolean' },
     { path: 'publisher.url', label: '服务地址' },
     { path: 'publisher.name', label: '连接名称' },
     { path: 'publisher.queueSize', label: '发布队列长度', type: 'number', min: 1 },
@@ -69,7 +69,7 @@ function renderSettingsField(field, settings) {
   const id = settingsFieldID(field.path);
   const value = settingsGet(settings, field.path);
   const hint = field.hint ? `<div class="form-text">${escapeHtml(field.hint)}</div>` : '';
-  if (field.type === 'boolean') return `<div class="settings-field"><label for="${id}">${escapeHtml(field.label)}</label><div class="settings-switch"><span>${hint}</span><div class="form-check form-switch m-0"><input id="${id}" class="form-check-input" type="checkbox"${value ? ' checked' : ''}></div></div></div>`;
+  if (field.type === 'boolean') return `<div class="settings-field"><div class="settings-switch"><label for="${id}">${escapeHtml(field.label)}</label><div class="form-check form-switch m-0"><input id="${id}" class="form-check-input" type="checkbox"${value ? ' checked' : ''}></div></div>${hint}</div>`;
   if (field.type === 'select') return `<div class="settings-field"><label for="${id}">${escapeHtml(field.label)}</label><select id="${id}" class="form-select">${field.options.map(([optionValue, optionLabel]) => `<option value="${escapeHtml(optionValue)}"${optionValue === value ? ' selected' : ''}>${escapeHtml(optionLabel)}</option>`).join('')}</select>${hint}</div>`;
   const type = field.type === 'number' ? 'number' : 'text';
   const min = field.min !== undefined ? ` min="${field.min}"` : '';

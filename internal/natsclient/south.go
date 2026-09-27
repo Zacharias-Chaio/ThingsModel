@@ -76,13 +76,13 @@ func NewSouthClient(_ context.Context, app config.App, handler TelemetryHandler)
 		nats.RetryOnFailedConnect(southConfig.RetryOnFailedConnect),
 		nats.PingInterval(milliseconds(southConfig.PingInterval, 20*time.Second)),
 		nats.MaxPingsOutstanding(southConfig.MaxPingsOut),
-		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) { log.Warn("数据订阅连接已断开", "error", err) }),
-		nats.ReconnectHandler(func(connection *nats.Conn) { log.Info("数据订阅连接已重连", "url", connection.ConnectedUrl()) }),
-		nats.ClosedHandler(func(connection *nats.Conn) { log.Warn("数据订阅连接已关闭", "error", connection.LastError()) }),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) { log.Warn("南向连接已断开", "error", err) }),
+		nats.ReconnectHandler(func(connection *nats.Conn) { log.Info("南向连接已重连", "url", connection.ConnectedUrl()) }),
+		nats.ClosedHandler(func(connection *nats.Conn) { log.Warn("南向连接已关闭", "error", connection.LastError()) }),
 	}
 	connection, err := nats.Connect(southConfig.URL, options...)
 	if err != nil {
-		return nil, fmt.Errorf("连接数据订阅 NATS: %w", err)
+		return nil, fmt.Errorf("连接南向 NATS: %w", err)
 	}
 	client.conn = connection
 	for _, subscription := range app.DeviceSubscriptions {
@@ -95,7 +95,7 @@ func NewSouthClient(_ context.Context, app config.App, handler TelemetryHandler)
 	}
 	if err := connection.Flush(); err != nil {
 		connection.Close()
-		return nil, fmt.Errorf("初始化数据订阅: %w", err)
+		return nil, fmt.Errorf("初始化南向连接: %w", err)
 	}
 	go client.sweepPending()
 	log.Info("南向客户端已启动", "url", southConfig.URL, "subscriptions", len(app.DeviceSubscriptions))
@@ -296,7 +296,7 @@ func (s *SouthClient) Close() {
 	}
 	s.stopOnce.Do(func() { close(s.stop) })
 	if err := s.conn.Drain(); err != nil {
-		s.log.Warn("数据订阅 Drain 失败", "error", err)
+		s.log.Warn("南向连接 Drain 失败", "error", err)
 		s.conn.Close()
 	}
 }
