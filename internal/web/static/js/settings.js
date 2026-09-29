@@ -5,34 +5,34 @@ const SETTINGS_CARDS = [
     { path: 'logger.level', label: '日志级别', type: 'select', options: [['debug', 'Debug'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']] },
     { path: 'logger.console', label: '终端输出', type: 'boolean' },
     { path: 'logger.file', label: '文件输出', type: 'boolean' },
+    { path: 'logger.fileConfig.compress', label: '压缩归档', type: 'boolean' },
     { path: 'logger.fileConfig.filename', label: '日志文件路径' },
     { path: 'logger.fileConfig.maxSize', label: '单文件上限 (MB)', type: 'number', min: 1 },
     { path: 'logger.fileConfig.maxBackups', label: '历史文件份数', type: 'number', min: 0 },
     { path: 'logger.fileConfig.maxAge', label: '保留天数', type: 'number', min: 0 },
-    { path: 'logger.fileConfig.compress', label: '压缩归档', type: 'boolean' },
   ] },
   { icon: 'broadcast-pin', title: '南向采集', subtitle: '订阅网关遥测输入', fields: [
     { path: 'subscriber.enabled', label: '启用连接', type: 'boolean' },
+    { path: 'subscriber.retryOnFailedConnect', label: '失败后重试', type: 'boolean' },
     { path: 'subscriber.url', label: '服务地址' },
     { path: 'subscriber.name', label: '连接名称' },
     { path: 'subscriber.inputSubjectPrefix', label: '输入主题前缀', hint: '网关数据主题：{前缀}.{gatewayId}.data' },
     { path: 'subscriber.connectTimeout', label: '连接超时 (ms)', type: 'number', min: 0 },
     { path: 'subscriber.reconnectWait', label: '重连间隔 (ms)', type: 'number', min: 0 },
     { path: 'subscriber.maxReconnects', label: '最大重连次数', type: 'number', min: -1 },
-    { path: 'subscriber.retryOnFailedConnect', label: '失败后重试', type: 'boolean' },
     { path: 'subscriber.pingInterval', label: '心跳间隔 (ms)', type: 'number', min: 0 },
     { path: 'subscriber.maxPingsOut', label: '最大未响应心跳数', type: 'number', min: 0 },
     { path: 'staleAfter', label: '数据过期时长 (ms)', type: 'number', min: 0, hint: '0 表示不因时间标记数据过期。' },
   ] },
   { icon: 'send', title: '北向转发', subtitle: '发布归一化数据给下游', fields: [
     { path: 'publisher.enabled', label: '启用连接', type: 'boolean' },
+    { path: 'publisher.retryOnFailedConnect', label: '失败后重试', type: 'boolean' },
     { path: 'publisher.url', label: '服务地址' },
     { path: 'publisher.name', label: '连接名称' },
     { path: 'publisher.queueSize', label: '发布队列长度', type: 'number', min: 1 },
     { path: 'publisher.connectTimeout', label: '连接超时 (ms)', type: 'number', min: 0 },
     { path: 'publisher.reconnectWait', label: '重连间隔 (ms)', type: 'number', min: 0 },
     { path: 'publisher.maxReconnects', label: '最大重连次数', type: 'number', min: -1 },
-    { path: 'publisher.retryOnFailedConnect', label: '失败后重试', type: 'boolean' },
     { path: 'publisher.reconnectBufSize', label: '断连缓冲 (bytes)', type: 'number', min: 0 },
     { path: 'publisher.pingInterval', label: '心跳间隔 (ms)', type: 'number', min: 0 },
     { path: 'publisher.maxPingsOut', label: '最大未响应心跳数', type: 'number', min: 0 },
@@ -115,8 +115,8 @@ function renderSettings() {
   if (save) save.disabled = false;
   const cards = SETTINGS_CARDS.map(card => settingsCard(card.icon, card.title, card.subtitle, `<div class="settings-fields">${card.fields.map(field => renderSettingsField(field, state.settings)).join('')}</div>`));
   target.innerHTML = [
-    softwareInfoCard() + subscriptionCard(state.settings.deviceSubscriptions || []) + cards[0] + restartCard(),
-    cards[2],
+    softwareInfoCard() + subscriptionCard(state.settings.deviceSubscriptions || []) + cards[0],
+    cards[2] + restartCard(),
     cards[1],
   ].map(column => `<div class="settings-column">${column}</div>`).join('');
 }
