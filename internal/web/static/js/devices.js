@@ -280,7 +280,7 @@ function renderDeviceWizard() {
   const step = DEVICE_WIZARD_STEPS[state.deviceStep];
   const stepper = document.getElementById('device-stepper');
   stepper.innerHTML = DEVICE_WIZARD_STEPS.map((item, index) => `
-    <div class="step-item ${index === state.deviceStep ? 'active' : index < state.deviceStep ? 'done' : ''}"><div class="step-circle">${index + 1}</div><div class="step-label">${item.title}</div></div>${index < DEVICE_WIZARD_STEPS.length - 1 ? '<div class="step-connector ' + (index < state.deviceStep ? 'done' : '') + '"></div>' : ''}`).join('');
+    <div class="step-item ${index === state.deviceStep ? 'active' : index < state.deviceStep ? 'done' : ''}" onclick="goToDeviceStep(${index})"><div class="step-circle">${index + 1}</div><div class="step-label">${item.title}</div></div>${index < DEVICE_WIZARD_STEPS.length - 1 ? '<div class="step-connector ' + (index < state.deviceStep ? 'done' : '') + '"></div>' : ''}`).join('');
   document.getElementById('device-wizard-card').innerHTML = `
     <div class="step-heading"><div class="step-icon"><i class="bi ${step.icon}"></i></div><div><h5>${step.title}</h5><div class="text-muted small">${step.sub}</div></div></div>
     <div class="step-body">${deviceStepBody(state.deviceStep)}</div>`;
@@ -501,6 +501,14 @@ function updateAlarmMethod(index, method) {
 function devicePreviewBody() {
   const progress = deviceBindingProgress(state.deviceDraft);
   return `<div class="summary-grid"><div class="summary-card"><div class="val">${(state.deviceDraft.properties || []).length}</div><div class="lbl">属性数量</div></div><div class="summary-card"><div class="val">${(state.deviceDraft.methods || []).length}</div><div class="lbl">服务数量</div></div><div class="summary-card"><div class="val">${progress.done}/${progress.total}</div><div class="lbl">绑定完成度</div></div></div><div class="form-section-divider"><span><i class="bi bi-file-code me-1"></i>设备实例 JSON</span></div><pre class="code-preview">${escapeHtml(JSON.stringify(state.deviceDraft, null, 2))}</pre><div class="d-flex justify-content-end gap-2 mt-3"><button class="btn btn-outline-secondary" onclick="exportDeviceDraft()"><i class="bi bi-download me-1"></i>导出 JSON</button><button class="btn btn-success" onclick="saveDeviceDraft()"><i class="bi bi-database-check me-1"></i>保存设备</button></div>`;
+}
+
+// 穿越：点击顶部步骤导航直接跳转到对应步骤
+function goToDeviceStep(index) {
+  if (index < 0 || index >= DEVICE_WIZARD_STEPS.length) return;
+  if (index === state.deviceStep) return;
+  state.deviceStep = index;
+  renderDeviceWizard();
 }
 
 function nextDeviceStep() {

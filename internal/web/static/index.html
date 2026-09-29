@@ -98,15 +98,15 @@
           </div>
         </div>
         <div class="stepper" id="stepper">
-          <div class="step-item active"><div class="step-circle">1</div><div class="step-label">档案信息</div></div>
+          <div class="step-item active" onclick="goToStep(0)"><div class="step-circle">1</div><div class="step-label">档案信息</div></div>
           <div class="step-connector"></div>
-          <div class="step-item"><div class="step-circle">2</div><div class="step-label">属性配置</div></div>
+          <div class="step-item" onclick="goToStep(1)"><div class="step-circle">2</div><div class="step-label">属性配置</div></div>
           <div class="step-connector"></div>
-          <div class="step-item"><div class="step-circle">3</div><div class="step-label">服务配置</div></div>
+          <div class="step-item" onclick="goToStep(2)"><div class="step-circle">3</div><div class="step-label">服务配置</div></div>
           <div class="step-connector"></div>
-          <div class="step-item"><div class="step-circle">4</div><div class="step-label">告警配置</div></div>
+          <div class="step-item" onclick="goToStep(3)"><div class="step-circle">4</div><div class="step-label">告警配置</div></div>
           <div class="step-connector"></div>
-          <div class="step-item"><div class="step-circle">5</div><div class="step-label">预览</div></div>
+          <div class="step-item" onclick="goToStep(4)"><div class="step-circle">5</div><div class="step-label">预览</div></div>
         </div>
         <div class="wizard-wrapper">
           <button class="nav-arrow" id="btn-prev" onclick="prevStep()">&#8249;</button>

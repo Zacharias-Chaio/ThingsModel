@@ -710,6 +710,15 @@ function toggleStatusSection(typeId, descId) {
 function removeRow(btn) { btn.closest('.status-row').remove(); }
 
 // ===== 向导导航 =====
+// 穿越：点击顶部步骤导航直接跳转到对应步骤
+function goToStep(index) {
+  if (index < 0 || index >= WIZARD_STEPS.length) return;
+  if (index === state.currentStep) return;
+  state.currentStep = index;
+  renderStepper();
+  renderStep();
+}
+
 function nextStep() {
   if (state.currentStep === 0 && !validateProfile()) {
     toast('请填写必填的档案信息（名称、编码）', 'error');
