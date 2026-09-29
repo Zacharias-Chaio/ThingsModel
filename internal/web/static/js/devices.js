@@ -301,7 +301,7 @@ function deviceStepBody(step) {
 function deviceProfileBody() {
   const draft = state.deviceDraft;
   const options = state.templates.map(template => `<option value="${escapeHtml(template.code)}" ${template.code === draft.templateCode ? 'selected' : ''}>${escapeHtml(template.name)} (${escapeHtml(template.code)})</option>`).join('');
-  return `<div class="info-banner"><i class="bi bi-info-circle-fill me-2" style="color:var(--primary)"></i><span class="text-muted">设备实例会保存模板快照与实际点位映射；后续模板修改不会自动覆盖已配置设备。</span></div>
+  return `<div class="info-banner"><i class="bi bi-info-circle-fill me-2" style="color:var(--primary)"></i><span class="text-muted">设备实例保存模板快照与实际点位映射；模板保存后会自动同步到本设备，并保留已配置的绑定。</span></div>
     <div class="row g-3">
       <div class="col-md-6"><label class="form-label fw-semibold">设备实例 ID <span class="text-danger">*</span></label><input class="form-control" id="device-id" readonly value="${escapeHtml(draft.id)}" placeholder="如：Device-001"></div>
       <div class="col-md-6"><label class="form-label fw-semibold">设备名称 <span class="text-danger">*</span></label><input class="form-control" id="device-name" value="${escapeHtml(draft.name)}" placeholder="如：A区1号储能柜 PCS"></div>

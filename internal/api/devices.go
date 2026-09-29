@@ -73,15 +73,14 @@ func (s *Server) SaveDevice(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, existingResult.Error.Error())
 		return
 	}
-	// 新建设备 或 模板版本与设备记录不一致时，刷新模板快照（保留用户已配置的 binding）
+	// 始终以模板最新定义刷新快照，仅保留实例已配置的 binding：
+	// 模板新增的服务/告警会带入，删除的条目及其绑定会同步移除。
 	template, err := s.templateForDevice(config.TemplateCode)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if errors.Is(existingResult.Error, gorm.ErrRecordNotFound) || config.TemplateVersion != template.Version {
-		hydrateDeviceSnapshot(&config, template)
-	}
+	hydrateDeviceSnapshot(&config, template)
 	if err := s.validateDeviceConfig(&config); err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
@@ -267,10 +266,41 @@ func hydrateDeviceSnapshot(config *store.DeviceConfig, template *store.Template)
 	}
 	config.Events.Rule = make([]store.Event, len(template.Events))
 	copy(config.Events.Rule, template.Events)
-	config.Events.Binding = alarmBindings
-	if config.Events.Binding == nil {
-		config.Events.Binding = []store.AlarmBinding{}
+	config.Events.Binding = pruneAlarmBindings(alarmBindings, template.Events)
+}
+
+// syncDevicesFromTemplate 把模板的最新定义同步到所有引用该模板的设备实例：
+// 重新水合快照（按 key 保留已配置绑定）、剔除已删除告警规则的引用并持久化。
+// 返回成功更新的设备数量；单个设备失败时中止并返回错误。
+func (s *Server) syncDevicesFromTemplate(template *store.Template) (int, error) {
+	if s.DB == nil {
+		return 0, errors.New("设备数据库未就绪")
 	}
+	var records []store.Device
+	if err := s.DB.Where("template_code = ?", template.Code).Find(&records).Error; err != nil {
+		return 0, err
+	}
+	updated := 0
+	for _, record := range records {
+		config, err := record.Config()
+		if err != nil {
+			return updated, fmt.Errorf("设备 %s: %w", record.ID, err)
+		}
+		hydrateDeviceSnapshot(&config, template)
+		if err := s.validateDeviceConfig(&config); err != nil {
+			return updated, fmt.Errorf("设备 %s: %w", record.ID, err)
+		}
+		nextRecord, err := store.NewDeviceRecord(config)
+		if err != nil {
+			return updated, err
+		}
+		nextRecord.CreatedAt = record.CreatedAt
+		if err := s.DB.Save(&nextRecord).Error; err != nil {
+			return updated, err
+		}
+		updated++
+	}
+	return updated, nil
 }
 
 func normalizeDeviceConfig(config *store.DeviceConfig) {
@@ -415,6 +445,38 @@ func normalizeAlarmBindings(bindings []store.AlarmBinding) []store.AlarmBinding 
 			binding.Method = "or"
 		}
 		out = append(out, binding)
+	}
+	return out
+}
+
+// pruneAlarmBindings 剔除已不在模板中的告警规则引用，并丢弃因此没有有效规则的
+// 检测点位；同时归一化判断方法（单规则 ept，多规则 and/or）。
+func pruneAlarmBindings(bindings []store.AlarmBinding, rules []store.Event) []store.AlarmBinding {
+	valid := make(map[string]bool, len(rules))
+	for _, rule := range rules {
+		valid[rule.Key] = true
+	}
+	out := make([]store.AlarmBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		kept := make([]string, 0, len(binding.Rules))
+		for _, key := range binding.Rules {
+			if valid[key] {
+				kept = append(kept, key)
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		binding.Rules = kept
+		if len(kept) <= 1 {
+			binding.Method = "ept"
+		} else if binding.Method != "and" && binding.Method != "or" {
+			binding.Method = "or"
+		}
+		out = append(out, binding)
+	}
+	if out == nil {
+		out = []store.AlarmBinding{}
 	}
 	return out
 }

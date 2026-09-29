@@ -61,13 +61,13 @@ func Default() App {
 		Software: Software{ID: "thingsmodel-001", Name: "ThingsModel"},
 		Logger:   logging.DefaultConfig().Logger,
 		Subscriber: Subscriber{
-			Enabled: false, URL: "nats://127.0.0.1:4222", Name: "thingsmodel-sub",
+			Enabled: false, URL: "nats://127.0.0.1:4222", Name: "thingsmodel-south",
 			InputSubjectPrefix: "powerpulse.gateway",
 			ConnectTimeout:     2000, ReconnectWait: 2000, MaxReconnects: -1,
 			RetryOnFailedConnect: true, PingInterval: 20000, MaxPingsOut: 3,
 		},
 		Publisher: Publisher{
-			Enabled: false, URL: "nats://127.0.0.1:4222", Name: "thingsmodel-pub",
+			Enabled: false, URL: "nats://127.0.0.1:4222", Name: "thingsmodel-north",
 			QueueSize: 4096, ConnectTimeout: 2000, ReconnectWait: 2000, MaxReconnects: -1,
 			RetryOnFailedConnect: true, ReconnectBufSize: 8388608, PingInterval: 20000, MaxPingsOut: 3,
 		},

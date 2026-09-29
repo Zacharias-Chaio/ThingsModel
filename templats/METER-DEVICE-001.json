@@ -315,6 +315,24 @@
                 "deviceId": 0,
                 "propertyId": ""
             }
+        },
+        {
+            "number": 2,
+            "name": "测试点",
+            "key": "test",
+            "desc": "测试写",
+            "type": "number",
+            "validation": {
+                "min": 0,
+                "max": 0
+            },
+            "descriptions": [],
+            "binding": {
+                "gatewayId": "",
+                "channelId": 0,
+                "deviceId": 0,
+                "propertyId": ""
+            }
         }
     ],
     "events": [
@@ -327,6 +345,16 @@
             "type": "equal",
             "threshold": 0,
             "time": 3000
+        },
+        {
+            "number": 1,
+            "name": "过压故障",
+            "key": "overVoltage",
+            "description": "设备过压",
+            "level": 2,
+            "type": "upper",
+            "threshold": 20,
+            "time": 1000
         }
     ]
 }

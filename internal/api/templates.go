@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -77,7 +78,19 @@ func (s *Server) SaveTemplate(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	ok(w, t)
+	// 模板更新后，自动把最新定义同步到所有引用该模板的设备实例（保留已配置绑定），
+	// 并热重载运行配置，使新增的服务/告警立即生效。
+	resp := map[string]any{"template": t, "syncedDevices": 0}
+	if synced, err := s.syncDevicesFromTemplate(&t); err != nil {
+		slog.Warn("模板已保存，但同步设备实例失败", "template", t.Code, "error", err)
+		resp["syncError"] = err.Error()
+	} else {
+		resp["syncedDevices"] = synced
+	}
+	if err := s.reloadRuntime(); err != nil {
+		slog.Warn("模板已保存，但热重载运行配置失败", "template", t.Code, "error", err)
+	}
+	ok(w, resp)
 }
 
 // validateTemplate 校验模板结构：key/number 唯一性、类型合法性、status 属性必须有状态值描述。

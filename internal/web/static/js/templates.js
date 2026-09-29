@@ -611,8 +611,15 @@ async function saveDraft() {
     return;
   }
   try {
-    await TemplatesAPI.save(state.draft);
-    toast(state.isEditing ? '模板已更新' : '模板已保存');
+    const result = await TemplatesAPI.save(state.draft);
+    const synced = result && result.syncedDevices;
+    if (synced > 0) {
+      toast(`模板已${state.isEditing ? '更新' : '保存'}，并同步到 ${synced} 个设备实例`);
+    } else if (result && result.syncError) {
+      toast(`模板已${state.isEditing ? '更新' : '保存'}，但同步设备失败：${result.syncError}`, 'error');
+    } else {
+      toast(state.isEditing ? '模板已更新' : '模板已保存');
+    }
     await loadTemplates();
     switchSection('templates');
   } catch (e) {
