@@ -155,15 +155,16 @@ function sourceConfigured(source) {
 }
 
 function propertyConfigured(property) {
+  if (property.mode === 'logical') return true; // 逻辑点位无需绑定来源，视为已配置
   return !!(property.binding && property.binding.method && (property.binding.sources || []).length && property.binding.sources.every(sourceConfigured));
 }
 
 function methodConfigured(method) {
-  return sourceConfigured(method.binding);
+  return !!(method.binding && method.binding.propertyKey);
 }
 
 function eventConfigured(binding) {
-  return !!(binding && sourceConfigured(binding.point) && (binding.rules || []).filter(Boolean).length);
+  return !!(binding && binding.propertyKey && (binding.rules || []).filter(Boolean).length);
 }
 
 async function newDevice() {
@@ -226,23 +227,19 @@ function normalizeDeviceDraft(device) {
   draft.methods = draft.methods || [];
   draft.events = normalizeDeviceEvents(draft.events);
   draft.properties.forEach(property => {
+    property.mode = property.mode || 'physical';
     property.binding = normalizePropertyBinding(property.binding);
   });
-  draft.methods.forEach(method => method.binding = method.binding || { gatewayId: '', channelId: -1, deviceId: -1, propertyId: '' });
+  draft.methods.forEach(method => method.binding = method.binding || { propertyKey: '' });
   return draft;
 }
 
-// 告警配置归一化：rule 为模板规则快照；binding 为检测点位关联（点位 + 判断方法 + 规则 key 列表）
+// 告警配置归一化：rule 为模板规则快照；binding 为监测属性点位关联（属性点位 + 判断方法 + 规则 key 列表）
 function normalizeDeviceEvents(events) {
   events = events || {};
   events.rule = events.rule || [];
   events.binding = (events.binding || []).map(binding => ({
-    point: {
-      gatewayId: (binding.point && binding.point.gatewayId) || '',
-      channelId: binding.point && typeof binding.point.channelId === 'number' ? binding.point.channelId : -1,
-      deviceId: binding.point && typeof binding.point.deviceId === 'number' ? binding.point.deviceId : -1,
-      propertyId: (binding.point && binding.point.propertyId) || ''
-    },
+    propertyKey: binding.propertyKey || '',
     method: binding.method || 'or',
     rules: binding.rules || []
   }));
@@ -270,8 +267,8 @@ function applyDeviceTemplate(code) {
   // 仅覆盖模板相关字段，保留用户已输入的档案信息（id/name/description/enabled）
   state.deviceDraft.templateCode = template.code;
   state.deviceDraft.templateVersion = template.version || '';
-  state.deviceDraft.properties = (draft.properties || []).map(property => ({ ...property, binding: normalizePropertyBinding(null) }));
-  state.deviceDraft.methods = (draft.methods || []).map(method => ({ ...method, binding: { gatewayId: '', channelId: -1, deviceId: -1, propertyId: '' } }));
+  state.deviceDraft.properties = (draft.properties || []).map(property => ({ ...property, mode: property.mode || 'physical', binding: normalizePropertyBinding(null) }));
+  state.deviceDraft.methods = (draft.methods || []).map(method => ({ ...method, binding: { propertyKey: '' } }));
   state.deviceDraft.events = { rule: draft.events || [], binding: [] };
   renderDeviceWizard();
 }
@@ -325,14 +322,26 @@ function devicePropertiesBody() {
     const binding = property.binding;
     const sources = binding.sources || [];
     const methods = property.type === 'status' ? ['ept'] : BINDING_METHODS;
-    // 来源行（四级下拉）；删除列随来源数增减；添加列每个模板属性一个 + 号
+    const modeCell = `<select class="form-select form-select-sm property-mode-select" onchange="setPropertyMode(${index}, this.value)">${PROPERTY_MODES.map(m => `<option value="${m.value}" ${property.mode === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}</select>`;
+    if (property.mode === 'logical') {
+      return `<tr><td><strong>${escapeHtml(property.name)}</strong><div><code>${escapeHtml(property.key)}</code></div></td><td>${typeBadge(property.type)}</td><td>${modeCell}</td><td class="text-muted">—</td><td><span class="badge-pill badge-w">逻辑点位</span> <span class="text-muted small">值由服务下发或外部写入</span></td><td class="text-muted text-center">—</td></tr>`;
+    }
+    // 来源行（四级下拉）；操作列：每来源一个删除按钮 + 一个添加按钮，水平靠右排列
     const sourceRows = sources.map((source, sourceIndex) => `
       <div class="binding-source-row">${sourceSelects(source, `updatePropertySource(${index},${sourceIndex}`)}</div>`).join('');
-    const dels = sources.map((source, sourceIndex) => `
-      <button class="btn btn-sm btn-outline-danger binding-del-btn" onclick="removePropertySource(${index},${sourceIndex})" title="删除来源"><i class="bi bi-trash"></i></button>`).join('');
-    return `<tr><td><strong>${escapeHtml(property.name)}</strong><div><code>${escapeHtml(property.key)}</code></div></td><td>${typeBadge(property.type)}</td><td><select class="form-select form-select-sm" onchange="setPropertyBindingMethod(${index}, this.value)">${methods.map(method => `<option value="${method}" ${binding.method === method ? 'selected' : ''}>${method}</option>`).join('')}</select></td><td><div class="binding-source-list">${sourceRows}</div></td><td class="binding-del">${dels}</td><td class="binding-add"><button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addPropertySource(${index})" title="添加来源"><i class="bi bi-plus-lg"></i></button></td></tr>`;
+    const actions = sources.map((source, sourceIndex) => `
+      <button class="btn btn-sm btn-outline-danger binding-del-btn" onclick="removePropertySource(${index},${sourceIndex})" title="删除来源"><i class="bi bi-trash"></i></button>`).join('') +
+      `<button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addPropertySource(${index})" title="添加来源"><i class="bi bi-plus-lg"></i></button>`;
+    return `<tr><td><strong>${escapeHtml(property.name)}</strong><div><code>${escapeHtml(property.key)}</code></div></td><td>${typeBadge(property.type)}</td><td>${modeCell}</td><td><select class="form-select form-select-sm" onchange="setPropertyBindingMethod(${index}, this.value)">${methods.map(method => `<option value="${method}" ${binding.method === method ? 'selected' : ''}>${method}</option>`).join('')}</select></td><td><div class="binding-source-list">${sourceRows}</div></td><td class="binding-actions">${actions}</td></tr>`;
   }).join('');
-  return `<div class="info-banner"><i class="bi bi-sliders me-2" style="color:var(--primary)"></i><span class="text-muted">状态属性仅支持 ept；数值属性可选择聚合方法并配置多个来源。</span><button class="btn btn-outline-primary btn-sm ms-auto flex-shrink-0" onclick="discoverFromTopology()" title="通过网关查询接口获取通道/设备拓扑，合并进来源目录"><i class="bi bi-diagram-3 me-1"></i>发现设备</button></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>模板属性</th><th>类型</th><th>方法</th><th>实际来源（网关 / 通道 / 设备 / 属性）</th><th class="text-center">删除</th><th class="text-center">添加</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-muted py-4">模板没有属性</td></tr>'}</tbody></table></div>`;
+  return `<div class="info-banner"><i class="bi bi-sliders me-2" style="color:var(--primary)"></i><span class="text-muted">状态属性仅支持 ept；数值属性可选择聚合方法并配置多个来源。逻辑点位不绑定来源，值由服务下发或外部模块写入。</span><button class="btn btn-outline-primary btn-sm ms-auto flex-shrink-0" onclick="discoverFromTopology()" title="通过网关查询接口获取通道/设备拓扑，合并进来源目录"><i class="bi bi-diagram-3 me-1"></i>发现设备</button></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>模板属性</th><th>类型</th><th>点位模式</th><th>方法</th><th>实际来源（网关 / 通道 / 设备 / 属性）</th><th class="text-center"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-muted py-4">模板没有属性</td></tr>'}</tbody></table></div>`;
+}
+
+function setPropertyMode(index, mode) {
+  const property = state.deviceDraft.properties[index];
+  property.mode = mode;
+  property.binding = mode === 'logical' ? { method: 'ept', sources: [] } : normalizePropertyBinding(null);
+  renderDeviceWizard();
 }
 
 // ===== 上游点位级联选择：网关ID → 通道ID → 设备ID → 属性ID =====
@@ -428,14 +437,32 @@ function updatePropertySource(index, sourceIndex, field, value) {
 
 function deviceMethodsBody() {
   const rows = state.deviceDraft.methods.map((method, index) => {
-    const binding = method.binding;
-    return `<tr><td><strong>${escapeHtml(method.name)}</strong><div><code>${escapeHtml(method.key)}</code></div></td><td>${typeBadge(method.type)}</td><td colspan="2"><div class="binding-source-row">${sourceSelects(binding, `updateMethodBinding(${index}`)}</div></td></tr>`;
+    const binding = method.binding || { propertyKey: '' };
+    const target = state.deviceDraft.properties.find(property => property.key === binding.propertyKey);
+    return `<tr><td><code>${escapeHtml(method.key)}</code></td><td><strong>${escapeHtml(method.name)}</strong></td><td>${typeBadge(method.type)}</td><td>${methodTargetSelect(method, index)}</td><td>${methodPointTypeCell(target)}</td></tr>`;
   }).join('');
-  return `<div class="info-banner"><i class="bi bi-gear me-2" style="color:var(--primary)"></i><span class="text-muted">每个服务绑定一个实际下发点位。留空表示暂不启用该服务。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>模板服务</th><th>类型</th><th colspan="2">实际下发点位（网关 / 通道 / 设备 / 属性）</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="text-center text-muted py-4">模板没有服务</td></tr>'}</tbody></table></div>`;
+  return `<div class="info-banner"><i class="bi bi-gear me-2" style="color:var(--primary)"></i><span class="text-muted">每个服务绑定一个目标属性点位（写出的属性）。目标属性为物理点位时下发到其绑定来源；为逻辑点位时写入缓存并北向发布。留空表示暂不启用该服务。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>服务</th><th>服务名称</th><th>类型</th><th>目标属性点</th><th>点位类型</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="text-center text-muted py-4">模板没有服务</td></tr>'}</tbody></table></div>`;
 }
 
-function updateMethodBinding(index, field, value) {
-  applySourceField(state.deviceDraft.methods[index].binding, field, value);
+// 服务目标属性点位选择：仅列出与服务类型一致的属性。
+function methodTargetSelect(method, index) {
+  const binding = method.binding || { propertyKey: '' };
+  const options = state.deviceDraft.properties
+    .filter(property => property.type === method.type)
+    .map(property => `<option value="${escapeHtml(property.key)}" ${property.key === binding.propertyKey ? 'selected' : ''}>${escapeHtml(property.name)} (${escapeHtml(property.key)})</option>`)
+    .join('');
+  return `<select class="form-select form-select-sm" onchange="setMethodTarget(${index}, this.value)"><option value="">请选择目标属性点</option>${options}</select>`;
+}
+
+// 服务点位类型：物理点位 / 逻辑点位 / 未绑定。
+function methodPointTypeCell(target) {
+  if (!target) return '<span class="text-muted small">未绑定</span>';
+  if (target.mode === 'logical') return '<span class="badge-pill badge-w">逻辑点位</span>';
+  return '<span class="badge-pill badge-rw">物理点位</span>';
+}
+
+function setMethodTarget(index, propertyKey) {
+  state.deviceDraft.methods[index].binding = { propertyKey: propertyKey || '' };
   renderDeviceWizard();
 }
 
@@ -460,31 +487,35 @@ function deviceEventsBody() {
   const rows = bindings.map((binding, index) => {
     const ruleCount = binding.rules.filter(Boolean).length;
     const method = ruleCount >= 2 ? (['and', 'or'].includes(binding.method) ? binding.method : 'or') : 'ept';
-    // 检测点位：四级级联 + 行内删除点位
-    const pointRow = `<div class="binding-source-row has-remove">${sourceSelects(binding.point, `updateAlarmPoint(${index}`)}<button class="btn btn-sm btn-outline-danger" onclick="removeAlarmPoint(${index})" title="删除检测点位"><i class="bi bi-trash"></i></button></div>`;
+    // 监测属性点位：下拉选择模板属性 + 行内删除
+    const pointCell = `<div class="d-flex align-items-center gap-2"><select class="form-select form-select-sm alarm-point-select" onchange="setAlarmPropertyKey(${index}, this.value)"><option value="">请选择监测属性点位</option>${alarmPointOptions(binding.propertyKey)}</select><button class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="removeAlarmPoint(${index})" title="删除监测点位"><i class="bi bi-trash"></i></button></div>`;
     // 规则行：下拉选项过滤本关联中已选规则，避免重复
     const ruleRows = binding.rules.map((ruleKey, ruleIndex) => {
       const others = binding.rules.filter((_, i) => i !== ruleIndex);
       const options = rules.filter(rule => rule.key === ruleKey || !others.includes(rule.key)).map(rule => `<option value="${escapeHtml(rule.key)}" ${rule.key === ruleKey ? 'selected' : ''}>${escapeHtml(alarmRuleLabel(rule))}</option>`).join('');
       return `<select class="form-select form-select-sm" onchange="updateAlarmRule(${index},${ruleIndex},this.value)"><option value="">请选择告警规则</option>${options}</select>`;
     }).join('');
-    // 删除列：与规则行一一对应；添加列：每个检测点位一个 + 号
+    // 删除列：与规则行一一对应；添加列：每个监测点位一个 + 号
     const dels = binding.rules.map((ruleKey, ruleIndex) => `<button class="btn btn-sm btn-outline-danger binding-del-btn" onclick="removeAlarmRule(${index},${ruleIndex})" title="删除规则关联"><i class="bi bi-trash"></i></button>`).join('');
     const methodSelect = ruleCount >= 2
       ? `<select class="form-select form-select-sm" onchange="updateAlarmMethod(${index},this.value)"><option value="and" ${method === 'and' ? 'selected' : ''}>and</option><option value="or" ${method === 'or' ? 'selected' : ''}>or</option></select>`
       : `<select class="form-select form-select-sm" disabled><option value="ept" selected>ept</option></select>`;
-    return `<tr><td>${pointRow}</td><td>${methodSelect}</td><td><div class="binding-source-list">${ruleRows || '<div class="text-muted small">尚未关联规则</div>'}</div></td><td class="binding-del">${dels}</td><td class="binding-add"><button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addAlarmRule(${index})" title="添加规则关联"><i class="bi bi-plus-lg"></i></button></td></tr>`;
+    return `<tr><td>${pointCell}</td><td>${methodSelect}</td><td><div class="binding-source-list">${ruleRows || '<div class="text-muted small">尚未关联规则</div>'}</div></td><td class="binding-actions">${dels}<button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addAlarmRule(${index})" title="添加规则关联"><i class="bi bi-plus-lg"></i></button></td></tr>`;
   }).join('');
-  return `<div class="info-banner"><i class="bi bi-bell me-2" style="color:var(--primary)"></i><span class="text-muted">一个检测点位可关联多条告警规则：单条规则 ept 直接判定；多条规则可选 and（全部成立）或 or（任一成立）。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>检测点位（网关 / 通道 / 设备 / 属性）</th><th>判断方法</th><th>关联告警规则（模板）</th><th class="text-center">删除</th><th class="text-center">添加</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="text-center text-muted py-4">尚未配置检测点位</td></tr>'}</tbody></table></div><button class="btn btn-outline-secondary btn-sm mt-2" onclick="addAlarmPoint()"><i class="bi bi-plus-lg"></i> 添加检测点位</button>`;
+  return `<div class="info-banner"><i class="bi bi-bell me-2" style="color:var(--primary)"></i><span class="text-muted">一个监测属性点位可关联多条告警规则：单条规则 ept 直接判定；多条规则可选 and（全部成立）或 or（任一成立）。监测的是属性点位归一化后的值（物理聚合值或逻辑缓存值）。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>监测属性点位</th><th>判断方法</th><th>关联告警规则（模板）</th><th class="text-center"></th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="text-center text-muted py-4">尚未配置监测点位</td></tr>'}</tbody></table></div><button class="btn btn-outline-secondary btn-sm mt-2" onclick="addAlarmPoint()"><i class="bi bi-plus-lg"></i> 添加监测点位</button>`;
+}
+
+function alarmPointOptions(selectedKey) {
+  return state.deviceDraft.properties.map(property => `<option value="${escapeHtml(property.key)}" ${property.key === selectedKey ? 'selected' : ''}>${escapeHtml(property.name)} (${escapeHtml(property.key)})${property.mode === 'logical' ? ' · 逻辑' : ''}</option>`).join('');
 }
 
 function addAlarmPoint() {
-  state.deviceDraft.events.binding.push({ point: { gatewayId: '', channelId: -1, deviceId: -1, propertyId: '' }, method: 'or', rules: [''] });
+  state.deviceDraft.events.binding.push({ propertyKey: '', method: 'or', rules: [''] });
   renderDeviceWizard();
 }
 function removeAlarmPoint(index) { state.deviceDraft.events.binding.splice(index, 1); renderDeviceWizard(); }
-function updateAlarmPoint(index, field, value) {
-  applySourceField(state.deviceDraft.events.binding[index].point, field, value);
+function setAlarmPropertyKey(index, propertyKey) {
+  state.deviceDraft.events.binding[index].propertyKey = propertyKey || '';
   renderDeviceWizard();
 }
 function addAlarmRule(index) { state.deviceDraft.events.binding[index].rules.push(''); renderDeviceWizard(); }
@@ -530,7 +561,7 @@ async function saveDeviceDraft() {
   const payload = JSON.parse(JSON.stringify(state.deviceDraft));
   payload.events.binding = payload.events.binding
     .map(binding => ({ ...binding, rules: binding.rules.filter(Boolean) }))
-    .filter(binding => (binding.point && binding.point.gatewayId) || binding.rules.length);
+    .filter(binding => binding.propertyKey || binding.rules.length);
   try {
     await DevicesAPI.save(payload);
     await loadDevices();

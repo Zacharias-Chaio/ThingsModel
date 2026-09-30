@@ -1,5 +1,11 @@
 package store
 
+// 属性点位模式：physical 实际点位（绑定网关来源），logical 逻辑点位（值存内存缓存，可被服务写入）。
+const (
+	PropertyModePhysical = "physical"
+	PropertyModeLogical  = "logical"
+)
+
 // 模板数据结构，严格遵循 templats/模板说明.md 设计。
 //
 // 顶层 Template 对应一个 .json 模板文件，存放在 templats/ 目录。
@@ -26,7 +32,8 @@ type Property struct {
 	Unit        string       `json:"unit"`        // 属性单位（选填）
 	Type        string       `json:"type"`        // status（状态类型）| number（数据类型）
 	Description []StatusDesc `json:"description"` // 状态值描述（type=status 时有效）
-	Binding     Binding      `json:"binding"`     // 属性绑定（聚合方法 + 数据来源）
+	Mode        string       `json:"mode"`        // 点位模式：physical（实际点位，默认）| logical（逻辑点位）
+	Binding     Binding      `json:"binding"`     // 属性绑定（聚合方法 + 数据来源；logical 时 Sources 为空）
 }
 
 // StatusDesc 状态值描述（属性/服务的 status 类型）。
@@ -73,12 +80,10 @@ type Validation struct {
 	Max float64 `json:"max"`
 }
 
-// MethodBinding 方法绑定：单点下发，按网关/通道/设备/属性 四级定位。
+// MethodBinding 方法绑定：引用目标属性点位（该设备模板属性 key）。
+// 目标属性为 physical 时值下发到其绑定来源；logical 时写入内存缓存并北向发布。
 type MethodBinding struct {
-	GatewayID  string `json:"gatewayId"`
-	ChannelID  int    `json:"channelId"`
-	DeviceID   int    `json:"deviceId"`
-	PropertyID string `json:"propertyId"`
+	PropertyKey string `json:"propertyKey"`
 }
 
 // Event 告警规则定义（模板层，纯定义，不含绑定）。
@@ -93,12 +98,12 @@ type Event struct {
 	Time        int     `json:"time"`        // 持续时间（毫秒），0 表示立即触发
 }
 
-// AlarmBinding 告警检测点位关联：一个检测点位匹配多条告警规则。
+// AlarmBinding 告警监测点位关联：一个属性点位匹配多条告警规则。
 // 单条规则 method=ept 直判；多条规则 method=and（全部成立）/ or（任一成立，默认）。
 type AlarmBinding struct {
-	Point  BindingSource `json:"point"`  // 检测点位（网关/通道/设备/属性 四级定位）
-	Method string        `json:"method"` // ept | and | or
-	Rules  []string      `json:"rules"`  // 关联的告警规则 key 列表
+	PropertyKey string   `json:"propertyKey"` // 监测的属性点位 key（该设备模板属性）
+	Method      string   `json:"method"`      // ept | and | or
+	Rules       []string `json:"rules"`       // 关联的告警规则 key 列表
 }
 
 // DeviceEvents 设备实例的告警配置：规则快照 + 检测点位关联。

@@ -29,6 +29,14 @@ type entry struct {
 	properties   map[string]PropertyStatus
 	events       map[string]EventStatus
 	eventStarted map[string]time.Time
+	logical      map[string]logicalValue // key = property.Key，逻辑点位的缓存值
+}
+
+// logicalValue 逻辑点位的一次写入：值、时间与来源（service=服务下发，external=外部写入，default 不落缓存）。
+type logicalValue struct {
+	Value     any
+	Timestamp time.Time
+	Source    string
 }
 
 type sourceEntry struct {
@@ -68,12 +76,14 @@ type PropertyStatus struct {
 }
 
 type MethodStatus struct {
-	Key          string             `json:"key"`
-	Name         string             `json:"name"`
-	Type         string             `json:"type"`                   // status | number
-	Status       string             `json:"status"`                 // unbound | configured
-	Validation   store.Validation   `json:"validation"`             // number：工程值下发范围（min/max）
-	Descriptions []store.StatusDesc `json:"descriptions,omitempty"` // status：状态值（名称+工程值）
+	Key            string             `json:"key"`
+	Name           string             `json:"name"`
+	Type           string             `json:"type"`                   // status | number
+	Status         string             `json:"status"`                 // unbound | configured
+	Validation     store.Validation   `json:"validation"`             // number：工程值下发范围（min/max）
+	Descriptions   []store.StatusDesc `json:"descriptions,omitempty"` // status：状态值（名称+工程值）
+	TargetProperty string             `json:"targetProperty"`         // 目标属性点位 key（未配置为空）
+	TargetMode     string             `json:"targetMode"`             // physical | logical
 }
 
 type EventStatus struct {
@@ -83,9 +93,9 @@ type EventStatus struct {
 	Status    string    `json:"status"`
 	Active    bool      `json:"active"`
 	Timestamp time.Time `json:"timestamp"`
-	Value     any       `json:"value"`     // 检测点位当前工程值（无数据为 null）
-	Point     string    `json:"point"`     // 检测点位描述：网关 · 通道/设备 · 属性
-	PointName string    `json:"pointName"` // 点位名称（来自上游遥测的属性名称，未接入为空）
+	Value     any       `json:"value"`     // 检测属性点位的归一化值（无数据为 null）
+	Point     string    `json:"point"`     // 检测属性点位 key
+	PointName string    `json:"pointName"` // 检测属性点位名称
 	Rules     []string  `json:"rules"`     // 关联告警规则简要（名称+条件+持续时间）
 	Method    string    `json:"method"`    // ept | and | or
 }
@@ -188,9 +198,6 @@ func (r *Registry) Apply(configs []store.DeviceConfig) {
 				addBinding(nextBindings, SourceID(source.GatewayID, source.ChannelID, source.DeviceID), config.ID)
 			}
 		}
-		for _, binding := range config.Events.Binding {
-			addBinding(nextBindings, SourceID(binding.Point.GatewayID, binding.Point.ChannelID, binding.Point.DeviceID), config.ID)
-		}
 	}
 	r.devices = next
 	r.bindings = nextBindings
@@ -240,12 +247,12 @@ func (r *Registry) Sources() []SourceDevice {
 	return out
 }
 
-// BindingRef 枚举一条已配置的绑定引用（属性来源 / 服务点位 / 告警检测点位），
-// 供拓扑校验比对：网关侧 channel_index / device_index 是否仍存在、属性是否仍在点表中。
+// BindingRef 枚举一条已配置的属性物理来源引用，供拓扑校验比对：
+// 网关侧 channel_index / device_index 是否仍存在、属性是否仍在点表中。
+// 服务与告警已改为引用属性点位，不再直接持有网关四级引用，故此处只枚举属性物理来源。
 type BindingRef struct {
 	DeviceID     string
 	DeviceName   string
-	Kind         string // property | method | alarm
 	Key          string
 	Name         string
 	GatewayID    string
@@ -254,7 +261,7 @@ type BindingRef struct {
 	PropertyID   string
 }
 
-// BindingRefs 返回当前所有已配置绑定的扁平列表（只读，含未启用设备）。
+// BindingRefs 返回当前所有已配置的属性物理来源的扁平列表（只读，含未启用设备）。
 func (r *Registry) BindingRefs() []BindingRef {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -265,51 +272,40 @@ func (r *Registry) BindingRefs() []BindingRef {
 				if source.GatewayID == "" {
 					continue
 				}
-				out = append(out, BindingRef{DeviceID: id, DeviceName: device.config.Name, Kind: "property", Key: property.Key, Name: property.Name,
+				out = append(out, BindingRef{DeviceID: id, DeviceName: device.config.Name, Key: property.Key, Name: property.Name,
 					GatewayID: source.GatewayID, ChannelIndex: source.ChannelID, DeviceIndex: source.DeviceID, PropertyID: source.PropertyID})
 			}
-		}
-		for _, method := range device.config.Methods {
-			if method.Binding.GatewayID == "" {
-				continue
-			}
-			out = append(out, BindingRef{DeviceID: id, DeviceName: device.config.Name, Kind: "method", Key: method.Key, Name: method.Name,
-				GatewayID: method.Binding.GatewayID, ChannelIndex: method.Binding.ChannelID, DeviceIndex: method.Binding.DeviceID, PropertyID: method.Binding.PropertyID})
-		}
-		for _, binding := range device.config.Events.Binding {
-			if binding.Point.GatewayID == "" {
-				continue
-			}
-			out = append(out, BindingRef{DeviceID: id, DeviceName: device.config.Name, Kind: "alarm", Key: strings.Join(binding.Rules, "+"), Name: strings.Join(binding.Rules, "+"),
-				GatewayID: binding.Point.GatewayID, ChannelIndex: binding.Point.ChannelID, DeviceIndex: binding.Point.DeviceID, PropertyID: binding.Point.PropertyID})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].DeviceID != out[j].DeviceID {
 			return out[i].DeviceID < out[j].DeviceID
 		}
-		if out[i].Kind != out[j].Kind {
-			return out[i].Kind < out[j].Kind
-		}
 		return out[i].Key < out[j].Key
 	})
 	return out
 }
 
-// Method 返回设备某个服务（方法）的模板快照（含下发绑定配置），供控制下发链路定位点位。
-func (r *Registry) Method(deviceID, key string) (store.Method, bool) {
+// MethodTarget 返回服务及其目标属性点位；服务存在但目标属性缺失时 property 为零值、ok=true（防御）。
+func (r *Registry) MethodTarget(deviceID, key string) (store.Method, store.Property, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	device, ok := r.devices[deviceID]
 	if !ok {
-		return store.Method{}, false
+		return store.Method{}, store.Property{}, false
 	}
 	for _, method := range device.config.Methods {
-		if method.Key == key {
-			return method, true
+		if method.Key != key {
+			continue
 		}
+		for _, property := range device.config.Properties {
+			if property.Key == method.Binding.PropertyKey {
+				return method, property, true
+			}
+		}
+		return method, store.Property{}, true
 	}
-	return store.Method{}, false
+	return store.Method{}, store.Property{}, false
 }
 
 // PointName 解析一个绑定点位在上游遥测中的属性名称（网关 MessageCmd 以属性名下发）。
@@ -325,6 +321,57 @@ func (r *Registry) PointName(gatewayID string, channelIndex, deviceIndex int, pr
 		return property.Name
 	}
 	return propertyID
+}
+
+// SourceAccessMode 返回某物理点位的当前 access_mode（r/w/rw，来自上游来源目录）。
+// 来源未接入或点位不存在时返回 false，调用方应据此决定是否放行下发。
+func (r *Registry) SourceAccessMode(gatewayID string, channelIndex, deviceIndex int, propertyID string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	source, ok := r.sources[SourceID(gatewayID, channelIndex, deviceIndex)]
+	if !ok {
+		return "", false
+	}
+	property, ok := source.Properties[propertyID]
+	if !ok {
+		return "", false
+	}
+	return property.AccessMode, true
+}
+
+// WriteLogical 写入一个逻辑点位：刷新缓存 → 归一化 → 返回需北向发布的 FanoutMessage。
+// 仅允许写入 Mode=logical 的属性；设备停用时返回空切片（不发布）。
+func (r *Registry) WriteLogical(deviceID, propertyKey string, value any, source string) ([]FanoutMessage, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	device, ok := r.devices[deviceID]
+	if !ok {
+		return nil, fmt.Errorf("设备 %s 不存在", deviceID)
+	}
+	var target *store.Property
+	for i := range device.config.Properties {
+		if device.config.Properties[i].Key == propertyKey {
+			target = &device.config.Properties[i]
+			break
+		}
+	}
+	if target == nil {
+		return nil, fmt.Errorf("属性点位 %s 不存在", propertyKey)
+	}
+	if target.Mode != store.PropertyModeLogical {
+		return nil, fmt.Errorf("属性点位 %s 不是逻辑点位", propertyKey)
+	}
+	now := time.Now().UTC()
+	if device.logical == nil {
+		device.logical = make(map[string]logicalValue)
+	}
+	device.logical[propertyKey] = logicalValue{Value: value, Timestamp: now, Source: source}
+	r.refreshDevice(&device, now, true)
+	r.devices[deviceID] = device
+	if !device.config.Enabled {
+		return nil, nil
+	}
+	return []FanoutMessage{fanoutFromEntry(device, now)}, nil
 }
 
 // DeviceName 返回设备展示名（供命令记录等用途）。
@@ -347,6 +394,7 @@ func (r *Registry) ResetLiveData() {
 		device.properties = make(map[string]PropertyStatus)
 		device.events = make(map[string]EventStatus)
 		device.eventStarted = make(map[string]time.Time)
+		device.logical = make(map[string]logicalValue)
 		r.refreshDevice(&device, time.Now().UTC(), false)
 		r.devices[id] = device
 	}
@@ -415,9 +463,11 @@ func statusFromEntry(device entry) DeviceStatus {
 		Methods:        make([]MethodStatus, 0, len(config.Methods)),
 		Events:         make([]EventStatus, 0, len(config.Events.Binding)),
 	}
+	propertyMap := make(map[string]store.Property, len(config.Properties))
 	available := false
 	degraded := false
 	for _, property := range config.Properties {
+		propertyMap[property.Key] = property
 		propertyStatus, ok := device.properties[property.Key]
 		if !ok {
 			propertyStatus = PropertyStatus{Key: property.Key, Name: property.Name, Unit: property.Unit, Quality: "unavailable", Status: "unavailable"}
@@ -428,12 +478,18 @@ func statusFromEntry(device entry) DeviceStatus {
 	}
 	for _, method := range config.Methods {
 		methodStatus := "unbound"
-		if method.Binding.GatewayID != "" && method.Binding.PropertyID != "" {
+		targetProperty, targetMode := "", ""
+		if method.Binding.PropertyKey != "" {
 			methodStatus = "configured"
+			targetProperty = method.Binding.PropertyKey
+			if target, ok := propertyMap[method.Binding.PropertyKey]; ok {
+				targetMode = target.Mode
+			}
 		}
 		status.Methods = append(status.Methods, MethodStatus{
 			Key: method.Key, Name: method.Name, Type: method.Type, Status: methodStatus,
 			Validation: method.Validation, Descriptions: method.Descriptions,
+			TargetProperty: targetProperty, TargetMode: targetMode,
 		})
 	}
 	ruleMap := make(map[string]store.Event, len(config.Events.Rule))
@@ -445,9 +501,13 @@ func statusFromEntry(device entry) DeviceStatus {
 		if !ok {
 			binding := config.Events.Binding[i]
 			key, name, level := alarmMeta(binding, ruleMap)
+			pointName := ""
+			if target, exists := propertyMap[binding.PropertyKey]; exists {
+				pointName = target.Name
+			}
 			eventStatus = EventStatus{
 				Key: key, Name: name, Level: level, Status: "unavailable",
-				Point: alarmPointDesc(binding.Point), Rules: ruleBriefs(binding, ruleMap), Method: binding.Method,
+				Point: binding.PropertyKey, PointName: pointName, Rules: ruleBriefs(binding, ruleMap), Method: binding.Method,
 			}
 		}
 		status.Events = append(status.Events, eventStatus)
@@ -492,8 +552,11 @@ func (r *Registry) refreshDevice(device *entry, now time.Time, advance bool) {
 	if device.eventStarted == nil {
 		device.eventStarted = make(map[string]time.Time, len(device.config.Events.Binding))
 	}
+	if device.logical == nil {
+		device.logical = make(map[string]logicalValue)
+	}
 	for _, property := range device.config.Properties {
-		device.properties[property.Key] = r.normalizeProperty(property, now)
+		device.properties[property.Key] = r.normalizeProperty(*device, property, now)
 	}
 	ruleMap := make(map[string]store.Event, len(device.config.Events.Rule))
 	for _, rule := range device.config.Events.Rule {
@@ -501,30 +564,33 @@ func (r *Registry) refreshDevice(device *entry, now time.Time, advance bool) {
 	}
 	for i := range device.config.Events.Binding {
 		scope := alarmScope(i)
-		device.events[scope] = r.evaluateAlarm(device.config.Events.Binding[i], ruleMap, device.eventStarted, now, advance, scope)
+		prop := device.properties[device.config.Events.Binding[i].PropertyKey]
+		device.events[scope] = r.evaluateAlarm(device.config.Events.Binding[i], ruleMap, prop, device.eventStarted, now, advance, scope)
 	}
 }
 
-func (r *Registry) normalizeProperty(property store.Property, now time.Time) PropertyStatus {
+func (r *Registry) normalizeProperty(device entry, property store.Property, now time.Time) PropertyStatus {
 	status := PropertyStatus{Key: property.Key, Name: property.Name, Unit: property.Unit, Quality: "unbound", Status: "unavailable"}
-	values, timestamp, quality := r.sourceValues(property.Binding.Sources, now)
-	if len(property.Binding.Sources) == 0 {
-		return status
-	}
-	if quality != "good" {
+	values, timestamp, quality := r.rawValues(device, property, now)
+	if quality != "good" && quality != "default" {
 		status.Quality = quality
 		return status
 	}
 	status.Timestamp = timestamp
+	// 逻辑点位恒为单值直连（ept）；物理点位沿用绑定聚合方法。
+	method := property.Binding.Method
+	if property.Mode == store.PropertyModeLogical {
+		method = "ept"
+	}
 	if property.Type == "status" {
-		if property.Binding.Method != "ept" || len(values) != 1 {
+		if method != "ept" || len(values) != 1 {
 			status.Quality = "invalid"
 			return status
 		}
 		for _, description := range property.Description {
 			if valuesEqual(description.Value, values[0]) {
 				status.Value = description.Enum
-				status.Quality = "good"
+				status.Quality = quality
 				status.Status = "available"
 				return status
 			}
@@ -548,15 +614,33 @@ func (r *Registry) normalizeProperty(property store.Property, now time.Time) Pro
 		}
 		numbers = append(numbers, number)
 	}
-	value, ok := aggregate(property.Binding.Method, numbers)
+	value, ok := aggregate(method, numbers)
 	if !ok {
 		status.Quality = "invalid"
 		return status
 	}
 	status.Value = value
-	status.Quality = "good"
+	status.Quality = quality
 	status.Status = "available"
 	return status
+}
+
+// rawValues 返回属性点位的原始工程值列表、时间戳与质量。
+// logical：读内存缓存（未写入读默认值 / 无值 unavailable）；physical：读上游来源。
+func (r *Registry) rawValues(device entry, property store.Property, now time.Time) ([]any, time.Time, string) {
+	if property.Mode == store.PropertyModeLogical {
+		if v, ok := device.logical[property.Key]; ok {
+			return []any{v.Value}, v.Timestamp, "good"
+		}
+		if property.Default != nil {
+			return []any{property.Default}, time.Time{}, "default"
+		}
+		return nil, time.Time{}, "unavailable"
+	}
+	if len(property.Binding.Sources) == 0 {
+		return nil, time.Time{}, "unbound"
+	}
+	return r.sourceValues(property.Binding.Sources, now)
 }
 
 func (r *Registry) sourceValues(sources []store.BindingSource, now time.Time) ([]any, time.Time, string) {
@@ -607,24 +691,6 @@ func alarmMeta(binding store.AlarmBinding, rules map[string]store.Event) (string
 	return strings.Join(binding.Rules, "+"), strings.Join(names, " / "), level
 }
 
-// alarmPointDesc 生成检测点位的展示描述：网关 · 通道/设备 · 属性。
-func alarmPointDesc(point store.BindingSource) string {
-	return fmt.Sprintf("%s · %d/%d · %s", point.GatewayID, point.ChannelID, point.DeviceID, point.PropertyID)
-}
-
-// pointName 从最新遥测中解析检测点位的展示名称（上游属性名称）；来源未接入或点位不存在返回空。
-// 仅在持有 r.mu 的路径调用（与 sourceValues 相同）。
-func pointName(sources map[string]sourceEntry, point store.BindingSource) string {
-	source, ok := sources[SourceID(point.GatewayID, point.ChannelID, point.DeviceID)]
-	if !ok {
-		return ""
-	}
-	if property, ok := source.Properties[point.PropertyID]; ok {
-		return property.Name
-	}
-	return ""
-}
-
 // ruleBrief 生成一条告警规则的简要描述：名称 + 比较符 + 阈值 + 持续时间。
 func ruleBrief(rule store.Event) string {
 	op := rule.Type
@@ -654,25 +720,25 @@ func ruleBriefs(binding store.AlarmBinding, rules map[string]store.Event) []stri
 	return briefs
 }
 
-// evaluateAlarm 判定一个检测点位的告警状态：先按各规则自身的条件与持续时间
+// evaluateAlarm 判定一个属性点位的告警状态：先按各规则自身的条件与持续时间
 // （rule.Time）逐条判定，再按 method 合并（ept=单规则直判，and=全部成立，or=任一成立）。
-// advance=true（遥测路径）更新持续条件计时器；advance=false 只读评估，
+// 判定依据为属性点位归一化后的值（与北向发布值一致）：物理点位取聚合值，逻辑点位取缓存/默认值。
+// advance=true（遥测/写入路径）更新持续条件计时器；advance=false 只读评估，
 // 已触发但未记录开始时间的持续时间告警保持 pending，不会被时钟读取激活。
-func (r *Registry) evaluateAlarm(binding store.AlarmBinding, rules map[string]store.Event, started map[string]time.Time, now time.Time, advance bool, scope string) EventStatus {
+func (r *Registry) evaluateAlarm(binding store.AlarmBinding, rules map[string]store.Event, prop PropertyStatus, started map[string]time.Time, now time.Time, advance bool, scope string) EventStatus {
 	key, name, level := alarmMeta(binding, rules)
 	status := EventStatus{
 		Key: key, Name: name, Level: level, Status: "unavailable",
-		Value: nil, Point: alarmPointDesc(binding.Point), PointName: pointName(r.sources, binding.Point),
+		Value: prop.Value, Point: prop.Key, PointName: prop.Name,
 		Rules: ruleBriefs(binding, rules), Method: binding.Method,
 	}
-	values, timestamp, quality := r.sourceValues([]store.BindingSource{binding.Point}, now)
-	if quality != "good" {
+	// 有值（真实数据 good / 逻辑默认 default）才评估；其余质量清计时器不评估。
+	if prop.Quality != "good" && prop.Quality != "default" {
 		clearAlarmTimers(started, scope, binding.Rules, advance)
 		return status
 	}
-	status.Timestamp = timestamp
-	status.Value = values[0]
-	number, ok := numberValue(values[0])
+	status.Timestamp = prop.Timestamp
+	number, ok := numberValue(prop.Value)
 	if !ok {
 		clearAlarmTimers(started, scope, binding.Rules, advance)
 		return status

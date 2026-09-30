@@ -37,7 +37,7 @@ function renderRuntimeDetail() {
 
 function runtimeProperties(rows) { return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>属性</th><th>当前值</th><th>单位</th><th>质量</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${runtimeValue(row.value)}</td><td>${escapeHtml(row.unit || '-')}</td><td>${runtimeStatusBadge(row.quality)}</td></tr>`).join('') || '<tr><td colspan="4" class="text-center text-muted py-4">暂无属性</td></tr>'}</tbody></table></div>`; }
 function runtimeMethods(rows) {
-  return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>服务</th><th>状态</th><th>工程值下发</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${runtimeStatusBadge(row.status)}</td><td>${methodInvokeControl(row)}</td></tr>`).join('') || '<tr><td colspan="3" class="text-center text-muted py-4">暂无服务</td></tr>'}</tbody></table></div>`;
+  return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>服务</th><th>状态</th><th>工程值下发</th></tr></thead><tbody>${(rows || []).map(row => `<tr><td><strong>${escapeHtml(row.name)}</strong><div><code>${escapeHtml(row.key)}</code></div>${row.targetProperty ? `<div class="text-muted small">→ ${escapeHtml(row.targetProperty)} · ${row.targetMode === 'logical' ? '逻辑点位' : '物理点位'}</div>` : ''}</td><td>${runtimeStatusBadge(row.status)}</td><td>${methodInvokeControl(row)}</td></tr>`).join('') || '<tr><td colspan="3" class="text-center text-muted py-4">暂无服务</td></tr>'}</tbody></table></div>`;
 }
 
 // 服务下发控件：number 填写工程值（带范围提示），status 选择状态。
@@ -85,6 +85,15 @@ async function invokeMethod(key) {
     toast(e.message, 'error');
     return;
   }
+  // 逻辑点位：写入缓存即时终态，无需轮询网关
+  if (record.targetKind === 'logical') {
+    if (record.finalStatus === 'success') {
+      toast(`${method.name} 已写入逻辑点位（${record.targetKey || ''} = ${value}）`);
+    } else {
+      toast(`写入逻辑点位失败：${record.finalMessage || '未知原因'}`, 'error');
+    }
+    return;
+  }
   if (record.acceptedStatus !== 'accepted') {
     toast(`网关拒绝指令：${record.acceptedMessage || record.acceptedStatus || '未知原因'}`, 'error');
     return;
@@ -109,7 +118,7 @@ async function pollCommandResult(requestId, methodName) {
   toast(`${methodName} 执行回报超时，请检查网关状态`, 'error');
 }
 function runtimeEvents(rows) {
-  return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>检测点位</th><th>点位名称</th><th>当前工程值</th><th>告警规则简要</th><th>级别</th><th>状态</th></tr></thead><tbody>${(rows || []).map(row => {
+  return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>监测点位</th><th>点位名称</th><th>当前值</th><th>告警规则简要</th><th>级别</th><th>状态</th></tr></thead><tbody>${(rows || []).map(row => {
     const rulesHtml = (row.rules || []).map(rule => `<div class="alarm-rule-brief">${escapeHtml(rule)}</div>`).join('');
     const methodChip = row.method === 'and' ? '<span class="method-chip">全部成立</span>' : row.method === 'or' ? '<span class="method-chip">任一成立</span>' : '';
     const level = EVENT_LEVELS[row.level] || EVENT_LEVELS[0];
@@ -118,7 +127,7 @@ function runtimeEvents(rows) {
 }
 
 function runtimeStatusBadge(status) {
-  const labels = { available: '可用', degraded: '降级', unavailable: '未接入', unbound: '未绑定', invalid: '无效', stale: '过期', unmapped: '未映射', configured: '已配置', inactive: '未触发', pending: '等待触发', active: '已触发', good: '正常' };
+  const labels = { available: '可用', degraded: '降级', unavailable: '未接入', unbound: '未绑定', invalid: '无效', stale: '过期', unmapped: '未映射', configured: '已配置', inactive: '未触发', pending: '等待触发', active: '已触发', good: '正常', default: '默认值' };
   const value = status || 'unavailable';
   return `<span class="status-badge ${escapeHtml(value)}">${escapeHtml(labels[value] || value)}</span>`;
 }

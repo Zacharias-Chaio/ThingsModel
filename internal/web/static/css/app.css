@@ -169,10 +169,14 @@ body {
 .binding-source-list .binding-source-row { grid-template-columns: minmax(100px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1.3fr) minmax(130px, 1.4fr); }
 .binding-source-row.has-remove { grid-template-columns: minmax(100px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1.3fr) minmax(130px, 1.4fr) 32px; }
 /* 属性映射操作列：删除列随来源数增减，添加列每个模板属性一个 + 号 */
-.binding-del { display: flex; flex-direction: column; gap: 6px; width: 44px; }
+.binding-actions { text-align: right; white-space: nowrap; vertical-align: top; }
+.binding-actions .btn + .btn { margin-left: 6px; }
 .binding-del-btn { width: 34px; }
-.binding-add { width: 44px; vertical-align: top; }
 .binding-add-btn { width: 34px; }
+/* 告警映射：监测属性点位选择框加宽 */
+.alarm-point-select { min-width: 280px; max-width: 420px; }
+/* 属性映射：点位模式选择框加宽（展示四个汉字） */
+.property-mode-select { min-width: 104px; }
 
 /* ===== Runtime dashboard ===== */
 .runtime-layout { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 16px; }
@@ -423,7 +427,6 @@ body {
   .runtime-device-list { min-height: auto; }
   .binding-source-row, .binding-source-row.has-remove { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .binding-source-row .btn { width: 32px; }
-  .binding-del { flex-direction: row; flex-wrap: wrap; width: auto; }
   .settings-grid { grid-template-columns: 1fr; }
 }
 

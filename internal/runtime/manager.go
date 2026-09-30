@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,11 +81,10 @@ type GatewayTopology struct {
 	Topology  *natsclient.MessageQueryResp `json:"topology,omitempty"`
 }
 
-// BindingCheckItem 是一条绑定引用对照最新拓扑的校验结论。
+// BindingCheckItem 是一条属性物理来源引用对照最新拓扑的校验结论。
 type BindingCheckItem struct {
 	DeviceID     string `json:"deviceId"`
 	DeviceName   string `json:"deviceName"`
-	Kind         string `json:"kind"` // property | method | alarm
 	Key          string `json:"key"`
 	Name         string `json:"name"`
 	GatewayID    string `json:"gatewayId"`
@@ -149,7 +149,7 @@ func (m *Manager) TopologySnapshot() []GatewayTopology {
 	return results
 }
 
-// CheckBindings 刷新拓扑后，把每条已配置绑定与网关最新拓扑比对：
+// CheckBindings 刷新拓扑后，把每条属性物理来源引用与网关最新拓扑比对：
 // 通道/设备索引是否仍存在（网关调整挂载顺序会使 device_index 变化）、属性是否仍在点表中。
 func (m *Manager) CheckBindings(ctx context.Context) ([]BindingCheckItem, error) {
 	fresh := m.RefreshTopology(ctx)
@@ -165,7 +165,7 @@ func (m *Manager) CheckBindings(ctx context.Context) ([]BindingCheckItem, error)
 	refs := m.registry.BindingRefs()
 	items := make([]BindingCheckItem, 0, len(refs))
 	for _, ref := range refs {
-		item := BindingCheckItem{DeviceID: ref.DeviceID, DeviceName: ref.DeviceName, Kind: ref.Kind, Key: ref.Key, Name: ref.Name,
+		item := BindingCheckItem{DeviceID: ref.DeviceID, DeviceName: ref.DeviceName, Key: ref.Key, Name: ref.Name,
 			GatewayID: ref.GatewayID, ChannelIndex: ref.ChannelIndex, DeviceIndex: ref.DeviceIndex, PropertyID: ref.PropertyID, Status: "ok"}
 		topology, reachable := topologies[ref.GatewayID]
 		switch {
@@ -217,7 +217,8 @@ func checkRefAgainstTopology(topology *natsclient.MessageQueryResp, ref BindingR
 }
 
 // CommandRecord 是一次控制下发的全生命周期记录：
-// 受理（REQ/REP accepted/failure）→ 终态（cmdAck success/failure 或超时）。
+// 物理目标：受理（REQ/REP accepted/failure）→ 终态（cmdAck success/failure 或超时）；
+// 逻辑目标：写入内存缓存后即时终态（success）。
 type CommandRecord struct {
 	RequestID       string    `json:"requestId"`
 	DeviceID        string    `json:"deviceId"`
@@ -229,6 +230,8 @@ type CommandRecord struct {
 	DeviceIndex     int       `json:"deviceIndex"`
 	PropertyID      string    `json:"propertyId"`
 	PropertyName    string    `json:"propertyName"`
+	TargetKey       string    `json:"targetKey"`  // 目标属性点位 key
+	TargetKind      string    `json:"targetKind"` // physical | logical
 	Value           float64   `json:"value"`
 	AcceptedStatus  string    `json:"acceptedStatus"` // accepted | failure
 	AcceptedMessage string    `json:"acceptedMessage,omitempty"`
@@ -241,36 +244,88 @@ type CommandRecord struct {
 // commandLogLimit 进程内命令记录上限（环形截断，仅近期可查）。
 const commandLogLimit = 200
 
-// InvokeMethod 执行一次服务下发：定位设备方法与绑定点位 → 南向 .cmd REQ/REP →
-// 记录命令并异步等待 cmdAck 终态。返回受理结果（accepted 表示已入网关引擎写队列）。
+// InvokeMethod 执行一次服务下发：定位设备方法与目标属性点位，按点位模式分流：
+// logical → 写入内存缓存并即时终态；physical → 南向 .cmd REQ/REP 并等待 cmdAck 终态。
 func (m *Manager) InvokeMethod(ctx context.Context, deviceID, methodKey string, value float64) (CommandRecord, error) {
-	method, ok := m.registry.Method(deviceID, methodKey)
+	method, target, ok := m.registry.MethodTarget(deviceID, methodKey)
 	if !ok {
 		return CommandRecord{}, fmt.Errorf("设备 %s 不存在或没有服务 %s", deviceID, methodKey)
 	}
-	binding := method.Binding
-	if binding.GatewayID == "" || binding.PropertyID == "" || binding.ChannelID < 0 || binding.DeviceID < 0 {
-		return CommandRecord{}, fmt.Errorf("服务 %s 未绑定下发点位，请先在设备配置中完成绑定", method.Name)
+	if method.Binding.PropertyKey == "" {
+		return CommandRecord{}, fmt.Errorf("服务 %s 未绑定目标属性点位，请先在设备配置中完成绑定", method.Name)
 	}
-	if method.Type == "number" && method.Validation.Min < method.Validation.Max &&
-		(value < method.Validation.Min || value > method.Validation.Max) {
-		return CommandRecord{}, fmt.Errorf("工程值需在 %g ~ %g 范围内", method.Validation.Min, method.Validation.Max)
+	if err := validateInvokeValue(method, value); err != nil {
+		return CommandRecord{}, err
+	}
+	record := CommandRecord{
+		DeviceID: deviceID, MethodKey: methodKey, MethodName: method.Name,
+		TargetKey: method.Binding.PropertyKey, TargetKind: target.Mode, Value: value, CreatedAt: time.Now().UTC(),
+	}
+	if name, exists := m.registry.DeviceName(deviceID); exists {
+		record.DeviceName = name
+	}
+	if target.Mode == store.PropertyModeLogical {
+		messages, err := m.registry.WriteLogical(deviceID, target.Key, value, "service")
+		if err != nil {
+			return CommandRecord{}, err
+		}
+		record.FinalStatus = natsclient.AckStatusSuccess
+		record.FinalMessage = "已写入逻辑点位"
+		record.FinalizedAt = time.Now().UTC()
+		m.appendCommand(record)
+		m.publishFanout(messages)
+		return record, nil
+	}
+	return m.invokePhysical(ctx, record, target, value)
+}
+
+// validateInvokeValue 校验下发工程值：number 按范围，status 必须命中某状态值的工程值。
+func validateInvokeValue(method store.Method, value float64) error {
+	if method.Type == "number" {
+		if method.Validation.Min < method.Validation.Max &&
+			(value < method.Validation.Min || value > method.Validation.Max) {
+			return fmt.Errorf("工程值需在 %g ~ %g 范围内", method.Validation.Min, method.Validation.Max)
+		}
+		return nil
+	}
+	for _, description := range method.Descriptions {
+		if valuesEqual(description.Value, value) {
+			return nil
+		}
+	}
+	return fmt.Errorf("工程值 %v 不在服务 %s 的状态描述中", value, method.Name)
+}
+
+// invokePhysical 把值下发到目标属性的物理来源（须单源直连 ept 且可写）。
+func (m *Manager) invokePhysical(ctx context.Context, record CommandRecord, target store.Property, value float64) (CommandRecord, error) {
+	binding := target.Binding
+	if binding.Method != "" && binding.Method != "ept" {
+		return CommandRecord{}, fmt.Errorf("目标属性 %s 为聚合点位，不可作为控制目标", target.Name)
+	}
+	if len(binding.Sources) != 1 {
+		return CommandRecord{}, fmt.Errorf("目标属性 %s 需绑定单一来源才能下发", target.Name)
+	}
+	source := binding.Sources[0]
+	if source.GatewayID == "" || source.PropertyID == "" {
+		return CommandRecord{}, fmt.Errorf("目标属性 %s 未绑定物理来源", target.Name)
+	}
+	if accessMode, ok := m.registry.SourceAccessMode(source.GatewayID, source.ChannelID, source.DeviceID, source.PropertyID); ok {
+		if !isWritable(accessMode) {
+			return CommandRecord{}, fmt.Errorf("目标属性 %s 的物理点位只读(access_mode=%s)，不可下发", target.Name, accessMode)
+		}
 	}
 	south := m.South()
 	if south == nil {
 		return CommandRecord{}, fmt.Errorf("南向客户端未启用或未连接，无法下发控制指令")
 	}
-	propertyName := m.registry.PointName(binding.GatewayID, binding.ChannelID, binding.DeviceID, binding.PropertyID)
-	record := CommandRecord{
-		DeviceID: deviceID, MethodKey: methodKey, MethodName: method.Name,
-		GatewayID: binding.GatewayID, ChannelIndex: binding.ChannelID, DeviceIndex: binding.DeviceID,
-		PropertyID: binding.PropertyID, PropertyName: propertyName, Value: value, CreatedAt: time.Now().UTC(),
-	}
-	if name, exists := m.registry.DeviceName(deviceID); exists {
-		record.DeviceName = name
-	}
-	ack, final, err := south.SendCommand(ctx, binding.GatewayID, natsclient.MessageCmd{
-		ChannelIndex: binding.ChannelID, DeviceIndex: binding.DeviceID, Name: propertyName, Value: value,
+	propertyName := m.registry.PointName(source.GatewayID, source.ChannelID, source.DeviceID, source.PropertyID)
+	record.GatewayID = source.GatewayID
+	record.ChannelIndex = source.ChannelID
+	record.DeviceIndex = source.DeviceID
+	record.PropertyID = source.PropertyID
+	record.PropertyName = propertyName
+	ack, final, err := south.SendCommand(ctx, source.GatewayID, natsclient.MessageCmd{
+		ChannelIndex: source.ChannelID, DeviceIndex: source.DeviceID, Name: propertyName, Value: value,
 	})
 	if err != nil {
 		record.AcceptedStatus, record.AcceptedMessage = natsclient.AckStatusFailure, err.Error()
@@ -283,6 +338,25 @@ func (m *Manager) InvokeMethod(ctx context.Context, deviceID, methodKey string, 
 		go m.awaitFinalAck(ack.RequestID, final)
 	}
 	return record, nil
+}
+
+// isWritable 判定上游点位 access_mode（r/w/rw，大小写不敏感）是否可写。
+func isWritable(accessMode string) bool {
+	mode := strings.ToLower(strings.TrimSpace(accessMode))
+	return strings.Contains(mode, "w")
+}
+
+// publishFanout 把归一化结果交给北向客户端扇出（北向未启用时静默丢弃）。
+func (m *Manager) publishFanout(messages []FanoutMessage) {
+	m.mu.RLock()
+	publisher := m.north
+	m.mu.RUnlock()
+	if publisher == nil {
+		return
+	}
+	for _, message := range messages {
+		publisher.PublishData(normalizeMessage(message))
+	}
 }
 
 // Command 按请求 ID 查询命令记录（供前端轮询终态）。
@@ -467,15 +541,15 @@ func (m *Manager) handleTelemetry(data natsclient.MessageData, receivedAt time.T
 		DeviceName: data.DeviceName, CommNo: data.CommNo, ModelID: data.ModelID, ModelName: data.ModelName,
 		ReceivedAt: receivedAt, Properties: properties,
 	})
-	m.mu.RLock()
-	publisher := m.north
-	m.mu.RUnlock()
-	if publisher == nil {
-		return
+	m.publishFanout(output)
+}
+
+// unixMilliOrZero 把时间转为毫秒时间戳；零值时间（逻辑点位默认值等无时间来源）转为 0。
+func unixMilliOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
 	}
-	for _, message := range output {
-		publisher.PublishData(normalizeMessage(message))
-	}
+	return t.UnixMilli()
 }
 
 // normalizeMessage converts one fan-out payload to the wire contract.
@@ -483,18 +557,18 @@ func normalizeMessage(message FanoutMessage) natsclient.NormalizedData {
 	properties := make(map[string]natsclient.NormalizedProperty, len(message.Properties))
 	for _, property := range message.Properties {
 		properties[property.Key] = natsclient.NormalizedProperty{
-			Name: property.Name, Unit: property.Unit, Value: property.Value, Timestamp: property.Timestamp.UnixMilli(), Quality: property.Quality,
+			Name: property.Name, Unit: property.Unit, Value: property.Value, Timestamp: unixMilliOrZero(property.Timestamp), Quality: property.Quality,
 		}
 	}
 	events := make(map[string]natsclient.NormalizedEvent, len(message.Events))
 	for _, event := range message.Events {
 		events[event.Key] = natsclient.NormalizedEvent{
-			Name: event.Name, Level: event.Level, Status: event.Status, Active: event.Active, Timestamp: event.Timestamp.UnixMilli(),
+			Name: event.Name, Level: event.Level, Status: event.Status, Active: event.Active, Timestamp: unixMilliOrZero(event.Timestamp),
 		}
 	}
 	return natsclient.NormalizedData{
 		DeviceID: message.DeviceID, DeviceName: message.DeviceName, TemplateCode: message.TemplateCode,
 		TemplateVersion: message.TemplateVersion, DataStatus: message.DataStatus, Properties: properties, Events: events,
-		Timestamp: message.Timestamp.UnixMilli(),
+		Timestamp: unixMilliOrZero(message.Timestamp),
 	}
 }

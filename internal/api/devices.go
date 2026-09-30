@@ -216,11 +216,11 @@ func (s *Server) validateDeviceConfig(config *store.DeviceConfig) error {
 		}
 	}
 	for _, method := range config.Methods {
-		if err := validateMethodBinding(method); err != nil {
+		if err := validateMethodBinding(method, config.Properties); err != nil {
 			return fmt.Errorf("服务 %s: %w", method.Key, err)
 		}
 	}
-	if err := validateAlarmEvents(config.Events); err != nil {
+	if err := validateAlarmEvents(config.Events, config.Properties); err != nil {
 		return err
 	}
 	return nil
@@ -241,8 +241,10 @@ func (s *Server) templateForDevice(code string) (*store.Template, error) {
 // instance-specific bindings supplied by the client.
 func hydrateDeviceSnapshot(config *store.DeviceConfig, template *store.Template) {
 	propertyBindings := make(map[string]store.Binding, len(config.Properties))
+	propertyModes := make(map[string]string, len(config.Properties))
 	for _, property := range config.Properties {
 		propertyBindings[property.Key] = property.Binding
+		propertyModes[property.Key] = property.Mode
 	}
 	methodBindings := make(map[string]store.MethodBinding, len(config.Methods))
 	for _, method := range config.Methods {
@@ -256,6 +258,10 @@ func hydrateDeviceSnapshot(config *store.DeviceConfig, template *store.Template)
 		property.Binding = propertyBindings[property.Key]
 		if property.Binding.Sources == nil {
 			property.Binding.Sources = []store.BindingSource{}
+		}
+		property.Mode = propertyModes[property.Key]
+		if property.Mode != store.PropertyModeLogical {
+			property.Mode = store.PropertyModePhysical
 		}
 		config.Properties[index] = property
 	}
@@ -304,14 +310,20 @@ func (s *Server) syncDevicesFromTemplate(template *store.Template) (int, error) 
 }
 
 func normalizeDeviceConfig(config *store.DeviceConfig) {
-	// 绑定不是必须的：过滤未选择网关的空来源行，未选择网关的服务绑定置空
+	// 属性点位模式归一化：默认 physical；逻辑点位不保留来源。
 	for i := range config.Properties {
-		config.Properties[i].Binding.Sources = stripEmptySources(config.Properties[i].Binding.Sources)
+		property := &config.Properties[i]
+		if property.Mode != store.PropertyModeLogical {
+			property.Mode = store.PropertyModePhysical
+		} else {
+			property.Binding.Sources = []store.BindingSource{}
+		}
+		property.Binding.Sources = stripEmptySources(property.Binding.Sources)
 	}
 	// 告警关联：过滤空行并归一化判断方法（单规则 ept，多规则默认 or）
 	config.Events.Binding = normalizeAlarmBindings(config.Events.Binding)
 	for i := range config.Methods {
-		if strings.TrimSpace(config.Methods[i].Binding.GatewayID) == "" {
+		if strings.TrimSpace(config.Methods[i].Binding.PropertyKey) == "" {
 			config.Methods[i].Binding = store.MethodBinding{}
 		}
 	}
@@ -331,6 +343,12 @@ func normalizeDeviceConfig(config *store.DeviceConfig) {
 }
 
 func validatePropertyBinding(property store.Property) error {
+	if property.Mode == store.PropertyModeLogical {
+		if len(property.Binding.Sources) > 0 {
+			return errors.New("逻辑点位不应绑定来源")
+		}
+		return nil
+	}
 	binding := property.Binding
 	// 绑定不是必须的：无有效来源视为未绑定
 	if len(binding.Sources) == 0 {
@@ -363,12 +381,28 @@ func validatePropertyBinding(property store.Property) error {
 	return nil
 }
 
-func validateMethodBinding(method store.Method) error {
-	binding := method.Binding
-	if strings.TrimSpace(binding.GatewayID) == "" {
-		return nil // 未选择网关 = 未绑定，留空表示暂不启用该服务
+func validateMethodBinding(method store.Method, properties []store.Property) error {
+	propertyKey := strings.TrimSpace(method.Binding.PropertyKey)
+	if propertyKey == "" {
+		return nil // 未绑定：留空表示暂不启用该服务
 	}
-	return validateSource(store.BindingSource{GatewayID: binding.GatewayID, ChannelID: binding.ChannelID, DeviceID: binding.DeviceID, PropertyID: binding.PropertyID})
+	target, ok := findProperty(properties, propertyKey)
+	if !ok {
+		return fmt.Errorf("目标属性点位 %s 不存在", propertyKey)
+	}
+	if method.Type != target.Type {
+		return fmt.Errorf("服务类型(%s)与目标属性类型(%s)不一致", method.Type, target.Type)
+	}
+	return nil
+}
+
+func findProperty(properties []store.Property, key string) (store.Property, bool) {
+	for _, property := range properties {
+		if property.Key == key {
+			return property, true
+		}
+	}
+	return store.Property{}, false
 }
 
 func validateSource(source store.BindingSource) error {
@@ -390,25 +424,25 @@ func stripEmptySources(sources []store.BindingSource) []store.BindingSource {
 	return out
 }
 
-// validateAlarmEvents 校验告警检测点位关联：点位完整、规则存在且不重复、多规则方法为 and/or。
-func validateAlarmEvents(events store.DeviceEvents) error {
+// validateAlarmEvents 校验告警监测点位关联：点位存在、规则存在且不重复、多规则方法为 and/or。
+func validateAlarmEvents(events store.DeviceEvents, properties []store.Property) error {
 	ruleKeys := make(map[string]bool, len(events.Rule))
 	for _, rule := range events.Rule {
 		ruleKeys[rule.Key] = true
 	}
 	for _, binding := range events.Binding {
-		pointEmpty := strings.TrimSpace(binding.Point.GatewayID) == ""
+		pointEmpty := strings.TrimSpace(binding.PropertyKey) == ""
 		if pointEmpty && len(binding.Rules) == 0 {
 			continue
 		}
 		if pointEmpty {
-			return errors.New("告警关联：请先选择检测点位")
+			return errors.New("告警关联：请先选择监测点位")
 		}
 		if len(binding.Rules) == 0 {
-			return errors.New("告警关联：检测点位需关联至少一条告警规则")
+			return errors.New("告警关联：监测点位需关联至少一条告警规则")
 		}
-		if err := validateSource(binding.Point); err != nil {
-			return fmt.Errorf("告警关联: %w", err)
+		if _, ok := findProperty(properties, binding.PropertyKey); !ok {
+			return fmt.Errorf("告警关联：监测属性点位 %s 不存在", binding.PropertyKey)
 		}
 		seen := make(map[string]bool, len(binding.Rules))
 		for _, key := range binding.Rules {
@@ -436,7 +470,7 @@ func normalizeAlarmBindings(bindings []store.AlarmBinding) []store.AlarmBinding 
 			}
 		}
 		binding.Rules = rules
-		if strings.TrimSpace(binding.Point.GatewayID) == "" && len(rules) == 0 {
+		if strings.TrimSpace(binding.PropertyKey) == "" && len(rules) == 0 {
 			continue
 		}
 		if len(rules) <= 1 {

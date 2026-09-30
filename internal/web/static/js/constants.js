@@ -16,10 +16,16 @@ const WIZARD_STEPS = [
 
 const DEVICE_WIZARD_STEPS = [
   { key: 'profile', title: '设备档案', sub: '选择模板并填写设备实例信息', icon: 'bi-hdd-network' },
-  { key: 'properties', title: '属性映射', sub: '绑定实际设备属性点与聚合来源', icon: 'bi-sliders' },
-  { key: 'methods', title: '服务映射', sub: '配置服务的实际下发点位', icon: 'bi-gear' },
-  { key: 'events', title: '告警映射', sub: '配置告警监测点位', icon: 'bi-bell' },
+  { key: 'properties', title: '属性映射', sub: '绑定实际设备属性点或配置逻辑点位', icon: 'bi-sliders' },
+  { key: 'methods', title: '服务映射', sub: '配置服务写出的目标属性点位', icon: 'bi-gear' },
+  { key: 'events', title: '告警映射', sub: '配置告警监测的属性点位', icon: 'bi-bell' },
   { key: 'preview', title: '预览保存', sub: '检查并保存设备实例配置', icon: 'bi-eye' }
+];
+
+// 属性点位模式：physical 物理点位（绑定网关来源），logical 逻辑点位（值存缓存）
+const PROPERTY_MODES = [
+  { value: 'physical', label: '物理点位' },
+  { value: 'logical', label: '逻辑点位' }
 ];
 
 // 属性聚合方法列表（模板说明.md），默认 ept
