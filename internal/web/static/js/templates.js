@@ -554,7 +554,8 @@ function addEvent() {
     level: parseInt(document.getElementById('ev-level').value) || 0,
     type: document.getElementById('ev-type').value,
     threshold: parseFloat(document.getElementById('ev-threshold').value) || 0,
-    time: parseInt(document.getElementById('ev-time').value) || 0
+    time: parseInt(document.getElementById('ev-time').value) || 0,
+    binding: { propertyKey: '' }
   };
   if (!e.name || !e.key) { toast('请填写事件名称和标识符', 'error'); return; }
   if (_editingEventIndex >= 0) state.draft.events[_editingEventIndex] = e;

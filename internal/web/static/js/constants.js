@@ -29,7 +29,7 @@ const PROPERTY_MODES = [
 ];
 
 // 属性聚合方法列表（模板说明.md），默认 ept
-const BINDING_METHODS = ['ept', 'sum', 'avg', 'min', 'max', 'and', 'or', 'not'];
+const BINDING_METHODS = ['ept', 'sum', 'avg', 'min', 'max', 'and', 'or'];
 
 // 事件告警级别
 const EVENT_LEVELS = [
@@ -81,6 +81,6 @@ function emptyDraft() {
 function emptyDeviceDraft() {
   return {
     id: '', name: '', templateCode: '', templateVersion: '', description: '', enabled: true,
-    properties: [], methods: [], events: { rule: [], binding: [] }
+    properties: [], methods: [], events: []
   };
 }

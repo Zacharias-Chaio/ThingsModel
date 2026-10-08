@@ -118,11 +118,9 @@ async function pollCommandResult(requestId, methodName) {
   toast(`${methodName} 执行回报超时，请检查网关状态`, 'error');
 }
 function runtimeEvents(rows) {
-  return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>监测点位</th><th>点位名称</th><th>当前值</th><th>告警规则简要</th><th>级别</th><th>状态</th></tr></thead><tbody>${(rows || []).map(row => {
-    const rulesHtml = (row.rules || []).map(rule => `<div class="alarm-rule-brief">${escapeHtml(rule)}</div>`).join('');
-    const methodChip = row.method === 'and' ? '<span class="method-chip">全部成立</span>' : row.method === 'or' ? '<span class="method-chip">任一成立</span>' : '';
+  return `<div class="table-responsive"><table class="table runtime-table"><thead><tr><th>监测点位</th><th>点位名称</th><th>当前值</th><th>告警规则</th><th>级别</th><th>状态</th></tr></thead><tbody>${(rows || []).map(row => {
     const level = EVENT_LEVELS[row.level] || EVENT_LEVELS[0];
-    return `<tr><td><strong>${escapeHtml(row.point || '-')}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${row.pointName ? escapeHtml(row.pointName) : '-'}</td><td>${runtimeValue(row.value)}</td><td>${rulesHtml ? rulesHtml + methodChip : '<span class="text-muted">-</span>'}</td><td><span class="badge-pill ${level.cls}">${level.name}</span></td><td>${runtimeStatusBadge(row.status)}</td></tr>`;
+    return `<tr><td><strong>${escapeHtml(row.point || '-')}</strong><div><code>${escapeHtml(row.key)}</code></div></td><td>${row.pointName ? escapeHtml(row.pointName) : '-'}</td><td>${runtimeValue(row.value)}</td><td>${escapeHtml(row.name || '-')}</td><td><span class="badge-pill ${level.cls}">${level.name}</span></td><td>${runtimeStatusBadge(row.status)}</td></tr>`;
   }).join('') || '<tr><td colspan="6" class="text-center text-muted py-4">暂无告警</td></tr>'}</tbody></table></div>`;
 }
 

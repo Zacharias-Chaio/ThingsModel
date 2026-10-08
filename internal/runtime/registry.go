@@ -5,7 +5,6 @@ import (
 	"math"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -96,8 +95,6 @@ type EventStatus struct {
 	Value     any       `json:"value"`     // 检测属性点位的归一化值（无数据为 null）
 	Point     string    `json:"point"`     // 检测属性点位 key
 	PointName string    `json:"pointName"` // 检测属性点位名称
-	Rules     []string  `json:"rules"`     // 关联告警规则简要（名称+条件+持续时间）
-	Method    string    `json:"method"`    // ept | and | or
 }
 
 // SourceDevice is a source discovered from gateway telemetry and available to bind.
@@ -361,6 +358,9 @@ func (r *Registry) WriteLogical(deviceID, propertyKey string, value any, source 
 	if target.Mode != store.PropertyModeLogical {
 		return nil, fmt.Errorf("属性点位 %s 不是逻辑点位", propertyKey)
 	}
+	if target.Binding.Method != "" && target.Binding.Method != "ept" {
+		return nil, fmt.Errorf("属性点位 %s 为聚合逻辑点位，无写入权限", propertyKey)
+	}
 	now := time.Now().UTC()
 	if device.logical == nil {
 		device.logical = make(map[string]logicalValue)
@@ -461,7 +461,7 @@ func statusFromEntry(device entry) DeviceStatus {
 		UpdatedAt:      device.updated,
 		Properties:     make([]PropertyStatus, 0, len(config.Properties)),
 		Methods:        make([]MethodStatus, 0, len(config.Methods)),
-		Events:         make([]EventStatus, 0, len(config.Events.Binding)),
+		Events:         make([]EventStatus, 0, len(config.Events)),
 	}
 	propertyMap := make(map[string]store.Property, len(config.Properties))
 	available := false
@@ -492,22 +492,21 @@ func statusFromEntry(device entry) DeviceStatus {
 			TargetProperty: targetProperty, TargetMode: targetMode,
 		})
 	}
-	ruleMap := make(map[string]store.Event, len(config.Events.Rule))
-	for _, rule := range config.Events.Rule {
-		ruleMap[rule.Key] = rule
-	}
-	for i := range config.Events.Binding {
+	for i := range config.Events {
 		eventStatus, ok := device.events[alarmScope(i)]
 		if !ok {
-			binding := config.Events.Binding[i]
-			key, name, level := alarmMeta(binding, ruleMap)
+			event := config.Events[i]
 			pointName := ""
-			if target, exists := propertyMap[binding.PropertyKey]; exists {
+			if target, exists := propertyMap[event.Binding.PropertyKey]; exists {
 				pointName = target.Name
 			}
+			status := "unavailable"
+			if event.Binding.PropertyKey == "" {
+				status = "unbound"
+			}
 			eventStatus = EventStatus{
-				Key: key, Name: name, Level: level, Status: "unavailable",
-				Point: binding.PropertyKey, PointName: pointName, Rules: ruleBriefs(binding, ruleMap), Method: binding.Method,
+				Key: event.Key, Name: event.Name, Level: event.Level, Status: status,
+				Point: event.Binding.PropertyKey, PointName: pointName,
 			}
 		}
 		status.Events = append(status.Events, eventStatus)
@@ -547,10 +546,10 @@ func (r *Registry) refreshDevice(device *entry, now time.Time, advance bool) {
 		device.properties = make(map[string]PropertyStatus, len(device.config.Properties))
 	}
 	if device.events == nil {
-		device.events = make(map[string]EventStatus, len(device.config.Events.Binding))
+		device.events = make(map[string]EventStatus, len(device.config.Events))
 	}
 	if device.eventStarted == nil {
-		device.eventStarted = make(map[string]time.Time, len(device.config.Events.Binding))
+		device.eventStarted = make(map[string]time.Time, len(device.config.Events))
 	}
 	if device.logical == nil {
 		device.logical = make(map[string]logicalValue)
@@ -558,14 +557,15 @@ func (r *Registry) refreshDevice(device *entry, now time.Time, advance bool) {
 	for _, property := range device.config.Properties {
 		device.properties[property.Key] = r.normalizeProperty(*device, property, now)
 	}
-	ruleMap := make(map[string]store.Event, len(device.config.Events.Rule))
-	for _, rule := range device.config.Events.Rule {
-		ruleMap[rule.Key] = rule
-	}
-	for i := range device.config.Events.Binding {
+	for i := range device.config.Events {
 		scope := alarmScope(i)
-		prop := device.properties[device.config.Events.Binding[i].PropertyKey]
-		device.events[scope] = r.evaluateAlarm(device.config.Events.Binding[i], ruleMap, prop, device.eventStarted, now, advance, scope)
+		event := device.config.Events[i]
+		if event.Binding.PropertyKey == "" {
+			delete(device.events, scope) // 未配置监测点位：清除状态、不评估
+			continue
+		}
+		prop := device.properties[event.Binding.PropertyKey]
+		device.events[scope] = r.evaluateAlarm(event, prop, device.eventStarted, now, advance, scope)
 	}
 }
 
@@ -577,9 +577,9 @@ func (r *Registry) normalizeProperty(device entry, property store.Property, now 
 		return status
 	}
 	status.Timestamp = timestamp
-	// 逻辑点位恒为单值直连（ept）；物理点位沿用绑定聚合方法。
+	// 方法：physical 恒 ept；logical ept 走缓存值、非 ept 走来源聚合。
 	method := property.Binding.Method
-	if property.Mode == store.PropertyModeLogical {
+	if method == "" || property.Mode == store.PropertyModePhysical {
 		method = "ept"
 	}
 	if property.Type == "status" {
@@ -626,9 +626,10 @@ func (r *Registry) normalizeProperty(device entry, property store.Property, now 
 }
 
 // rawValues 返回属性点位的原始工程值列表、时间戳与质量。
-// logical：读内存缓存（未写入读默认值 / 无值 unavailable）；physical：读上游来源。
+// physical：读上游来源（单来源 ept）；logical+ept：读内存缓存/默认值；
+// logical+非 ept：读绑定的多个上游物理来源（只读聚合）。
 func (r *Registry) rawValues(device entry, property store.Property, now time.Time) ([]any, time.Time, string) {
-	if property.Mode == store.PropertyModeLogical {
+	if property.Mode == store.PropertyModeLogical && (property.Binding.Method == "" || property.Binding.Method == "ept") {
 		if v, ok := device.logical[property.Key]; ok {
 			return []any{v.Value}, v.Timestamp, "good"
 		}
@@ -674,156 +675,70 @@ func alarmScope(i int) string {
 	return fmt.Sprintf("alarm-%d", i)
 }
 
-// alarmMeta 汇总一条告警关联的展示元信息：key=规则组合，name=规则名组合，level=最高级别。
-func alarmMeta(binding store.AlarmBinding, rules map[string]store.Event) (string, string, int) {
-	names := make([]string, 0, len(binding.Rules))
-	level := 0
-	for _, key := range binding.Rules {
-		rule, ok := rules[key]
-		if !ok {
-			continue
-		}
-		names = append(names, rule.Name)
-		if rule.Level > level {
-			level = rule.Level
-		}
-	}
-	return strings.Join(binding.Rules, "+"), strings.Join(names, " / "), level
-}
-
-// ruleBrief 生成一条告警规则的简要描述：名称 + 比较符 + 阈值 + 持续时间。
-func ruleBrief(rule store.Event) string {
-	op := rule.Type
-	switch rule.Type {
-	case "equal":
-		op = "="
-	case "upper":
-		op = ">"
-	case "lower":
-		op = "<"
-	}
-	duration := "立即触发"
-	if rule.Time > 0 {
-		duration = fmt.Sprintf("持续%gs", float64(rule.Time)/1000)
-	}
-	return fmt.Sprintf("%s %s%v · %s", rule.Name, op, rule.Threshold, duration)
-}
-
-// ruleBriefs 生成一条告警关联下所有规则的简要列表（配置中已删除的规则跳过）。
-func ruleBriefs(binding store.AlarmBinding, rules map[string]store.Event) []string {
-	briefs := make([]string, 0, len(binding.Rules))
-	for _, key := range binding.Rules {
-		if rule, ok := rules[key]; ok {
-			briefs = append(briefs, ruleBrief(rule))
-		}
-	}
-	return briefs
-}
-
-// evaluateAlarm 判定一个属性点位的告警状态：先按各规则自身的条件与持续时间
-// （rule.Time）逐条判定，再按 method 合并（ept=单规则直判，and=全部成立，or=任一成立）。
+// evaluateAlarm 判定一条告警条目的状态：单规则按条件 + 持续时间（rule.Time）独立判定。
 // 判定依据为属性点位归一化后的值（与北向发布值一致）：物理点位取聚合值，逻辑点位取缓存/默认值。
 // advance=true（遥测/写入路径）更新持续条件计时器；advance=false 只读评估，
 // 已触发但未记录开始时间的持续时间告警保持 pending，不会被时钟读取激活。
-func (r *Registry) evaluateAlarm(binding store.AlarmBinding, rules map[string]store.Event, prop PropertyStatus, started map[string]time.Time, now time.Time, advance bool, scope string) EventStatus {
-	key, name, level := alarmMeta(binding, rules)
+func (r *Registry) evaluateAlarm(event store.DeviceEvent, prop PropertyStatus, started map[string]time.Time, now time.Time, advance bool, scope string) EventStatus {
+	rule := event.Event
 	status := EventStatus{
-		Key: key, Name: name, Level: level, Status: "unavailable",
-		Value: prop.Value, Point: prop.Key, PointName: prop.Name,
-		Rules: ruleBriefs(binding, rules), Method: binding.Method,
+		Key: rule.Key, Name: rule.Name, Level: rule.Level, Status: "unavailable",
+		Value: prop.Value, Point: event.Binding.PropertyKey, PointName: prop.Name,
 	}
 	// 有值（真实数据 good / 逻辑默认 default）才评估；其余质量清计时器不评估。
 	if prop.Quality != "good" && prop.Quality != "default" {
-		clearAlarmTimers(started, scope, binding.Rules, advance)
+		clearAlarmTimers(started, scope, advance)
 		return status
 	}
 	status.Timestamp = prop.Timestamp
 	number, ok := numberValue(prop.Value)
 	if !ok {
-		clearAlarmTimers(started, scope, binding.Rules, advance)
+		clearAlarmTimers(started, scope, advance)
 		return status
 	}
-	results := make([]bool, 0, len(binding.Rules))
-	pending := false
-	for _, ruleKey := range binding.Rules {
-		rule, ok := rules[ruleKey]
-		if !ok {
-			clearAlarmTimers(started, scope, binding.Rules, advance)
+	condition := false
+	switch rule.Type {
+	case "equal":
+		condition = number == rule.Threshold
+	case "upper":
+		condition = number > rule.Threshold
+	case "lower":
+		condition = number < rule.Threshold
+	default:
+		clearAlarmTimers(started, scope, advance)
+		return status
+	}
+	if !condition {
+		if advance {
+			delete(started, scope)
+		}
+		status.Status = "inactive"
+		return status
+	}
+	if started[scope].IsZero() {
+		if !advance {
+			status.Status = "pending"
 			return status
 		}
-		condition := false
-		switch rule.Type {
-		case "equal":
-			condition = number == rule.Threshold
-		case "upper":
-			condition = number > rule.Threshold
-		case "lower":
-			condition = number < rule.Threshold
-		default:
-			clearAlarmTimers(started, scope, binding.Rules, advance)
-			return status
-		}
-		timerKey := scope + "|" + ruleKey
-		if !condition {
-			if advance {
-				delete(started, timerKey)
-			}
-			results = append(results, false)
-			continue
-		}
-		if started[timerKey].IsZero() {
-			if !advance {
-				pending = true
-				results = append(results, false)
-				continue
-			}
-			started[timerKey] = now
-		}
-		if rule.Time == 0 || now.Sub(started[timerKey]) >= time.Duration(rule.Time)*time.Millisecond {
-			results = append(results, true)
-		} else {
-			pending = true
-			results = append(results, false)
-		}
+		started[scope] = now
 	}
-	active := false
-	switch binding.Method {
-	case "and":
-		active = len(results) > 0
-		for _, result := range results {
-			if !result {
-				active = false
-			}
-		}
-	case "or":
-		for _, result := range results {
-			if result {
-				active = true
-			}
-		}
-	default: // ept：单规则直判
-		active = len(results) == 1 && results[0]
-	}
-	if active {
+	if rule.Time == 0 || now.Sub(started[scope]) >= time.Duration(rule.Time)*time.Millisecond {
 		status.Status = "active"
 		status.Active = true
-	} else if pending {
-		status.Status = "pending"
 	} else {
-		status.Status = "inactive"
+		status.Status = "pending"
 	}
 	return status
 }
 
-// clearAlarmTimers 清空一条告警关联下所有规则的持续计时器（仅遥测路径 advance=true 时）。
-func clearAlarmTimers(started map[string]time.Time, scope string, ruleKeys []string, advance bool) {
+// clearAlarmTimers 清空一条告警条目的持续计时器（仅遥测路径 advance=true 时）。
+func clearAlarmTimers(started map[string]time.Time, scope string, advance bool) {
 	if !advance {
 		return
 	}
-	for _, key := range ruleKeys {
-		delete(started, scope+"|"+key)
-	}
+	delete(started, scope)
 }
+
 func aggregate(method string, values []float64) (any, bool) {
 	if len(values) == 0 {
 		return nil, false
@@ -864,14 +779,6 @@ func aggregate(method string, values []float64) (any, bool) {
 			if value != 0 {
 				return 1, true
 			}
-		}
-		return 0, true
-	case "not":
-		if len(values) != 1 {
-			return nil, false
-		}
-		if values[0] == 0 {
-			return 1, true
 		}
 		return 0, true
 	default:

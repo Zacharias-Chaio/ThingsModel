@@ -316,6 +316,24 @@
 </div>
 
 <!-- ===== 告警 Modal ===== -->
+<div class="modal fade" id="sourceModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-sliders me-2" style="color:var(--primary)"></i>编辑来源绑定</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="src-modal-body"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light" onclick="cancelSourceModal()">取消</button>
+        <button class="btn btn-primary" onclick="saveSourceModal()"><i class="bi bi-check-lg me-1"></i>保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="eventModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">

@@ -161,17 +161,24 @@ body {
 .binding-progress strong { color: #374151; }
 .progress { height: 6px; background: #eef2f7; }
 .progress-bar { background: var(--primary); }
+.binding-table { width: 100%; }
 .binding-table th { min-width: 100px; }
-.binding-source-list { display: grid; gap: 6px; }
-.binding-source-row { display: grid; grid-template-columns: minmax(100px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1.3fr) minmax(130px, 1.4fr); gap: 6px; }
-.binding-source-row.has-remove { grid-template-columns: minmax(90px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1.3fr) minmax(130px, 1.4fr) 32px; }
-/* 属性/告警配置的网关列加宽：能完整显示 7-8 个字符的网关 ID */
-.binding-source-list .binding-source-row { grid-template-columns: minmax(100px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1.3fr) minmax(130px, 1.4fr); }
-.binding-source-row.has-remove { grid-template-columns: minmax(100px, 1.1fr) minmax(70px, .7fr) minmax(110px, 1.3fr) minmax(130px, 1.4fr) 32px; }
+/* 属性映射窄列：编号/类型收紧，模板属性封顶，给来源标签留空间 */
+.binding-table th.idx-col, .binding-table td.idx-col { width: 40px; min-width: 40px; text-align: center; }
+.binding-table th.type-col, .binding-table td.type-col { width: 64px; min-width: 64px; }
+.binding-table th.name-col, .binding-table td.name-col { min-width: 70px; max-width: 160px; }
+/* 已绑定来源：网关/通道/设备/属性点 四级独立彩色标签 + 编辑/删除按钮，尽量单行 */
+.source-tag-list { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.source-tag-entry { display: inline-flex; align-items: center; gap: 3px; flex-wrap: nowrap; }
+.source-tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 7px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.source-tag.lv-gw { color: #1d4ed8; background: #dbeafe; }
+.source-tag.lv-ch { color: #047857; background: #d1fae5; }
+.source-tag.lv-dev { color: #b45309; background: #fef3c7; }
+.source-tag.lv-prop { color: #6d28d9; background: #ede9fe; }
+.source-tag-btn { width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 /* 属性映射操作列：删除列随来源数增减，添加列每个模板属性一个 + 号 */
 .binding-actions { text-align: right; white-space: nowrap; vertical-align: top; }
 .binding-actions .btn + .btn { margin-left: 6px; }
-.binding-del-btn { width: 34px; }
 .binding-add-btn { width: 34px; }
 /* 告警映射：监测属性点位选择框加宽 */
 .alarm-point-select { min-width: 280px; max-width: 420px; }
@@ -202,9 +209,6 @@ body {
 .runtime-table { margin-bottom: 0; }
 .invoke-control { display: flex; gap: 8px; align-items: center; max-width: 280px; }
 .invoke-control .form-control, .invoke-control .form-select { max-width: 150px; }
-.alarm-rule-brief { font-size: 12.5px; color: var(--text-color); line-height: 1.7; }
-.alarm-rule-brief::before { content: '·'; color: var(--muted-color); margin-right: 6px; }
-.method-chip { display: inline-block; margin-top: 4px; border-radius: 20px; padding: 1px 8px; font-size: 11px; font-weight: 600; background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); }
 
 /* ===== Empty State ===== */
 .empty-state {
@@ -425,8 +429,6 @@ body {
   .summary-grid { grid-template-columns: 1fr; }
   .runtime-layout { grid-template-columns: 1fr; }
   .runtime-device-list { min-height: auto; }
-  .binding-source-row, .binding-source-row.has-remove { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .binding-source-row .btn { width: 32px; }
   .settings-grid { grid-template-columns: 1fr; }
 }
 

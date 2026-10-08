@@ -21,18 +21,18 @@ type Device struct {
 }
 
 // DeviceConfig is a device-specific snapshot of a template with actual bindings.
-// Properties/methods keep template shape; events split into rule snapshot and
-// alarm point bindings (see DeviceEvents).
+// Properties/methods keep template shape; events carry per-rule point bindings
+// (see DeviceEvent).
 type DeviceConfig struct {
-	ID              string       `json:"id"`
-	Name            string       `json:"name"`
-	TemplateCode    string       `json:"templateCode"`
-	TemplateVersion string       `json:"templateVersion"`
-	Description     string       `json:"description"`
-	Enabled         bool         `json:"enabled"`
-	Properties      []Property   `json:"properties"`
-	Methods         []Method     `json:"methods"`
-	Events          DeviceEvents `json:"events"`
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	TemplateCode    string     `json:"templateCode"`
+	TemplateVersion string     `json:"templateVersion"`
+	Description     string     `json:"description"`
+	Enabled         bool       `json:"enabled"`
+	Properties      []Property `json:"properties"`
+	Methods         []Method   `json:"methods"`
+	Events          Events     `json:"events"`
 }
 
 // NewDeviceRecord serializes a device configuration for database storage.

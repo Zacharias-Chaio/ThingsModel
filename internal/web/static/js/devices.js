@@ -128,7 +128,7 @@ function renderDeviceList() {
         <div class="model-card-stats">
           <div class="mc-stat"><div class="num">${(device.properties || []).length}</div><div class="lbl">属性</div></div>
           <div class="mc-stat"><div class="num">${(device.methods || []).length}</div><div class="lbl">服务</div></div>
-          <div class="mc-stat"><div class="num">${(device.events?.rule || []).length}</div><div class="lbl">告警</div></div>
+          <div class="mc-stat"><div class="num">${(device.events || []).length}</div><div class="lbl">告警</div></div>
         </div>
         <div class="binding-progress"><span>绑定完成度</span><strong>${progress.done}/${progress.total}</strong></div>
         <div class="progress" role="progressbar" aria-label="绑定完成度" aria-valuenow="${progress.percent}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width:${progress.percent}%"></div></div>
@@ -144,9 +144,9 @@ function renderDeviceList() {
 function deviceBindingProgress(device) {
   const properties = device.properties || [];
   const methods = device.methods || [];
-  const alarmBindings = (device.events && device.events.binding) || [];
-  const done = properties.filter(propertyConfigured).length + methods.filter(methodConfigured).length + alarmBindings.filter(eventConfigured).length;
-  const total = properties.length + methods.length + alarmBindings.length;
+  const events = device.events || [];
+  const done = properties.filter(propertyConfigured).length + methods.filter(methodConfigured).length + events.filter(eventConfigured).length;
+  const total = properties.length + methods.length + events.length;
   return { done, total, percent: total ? Math.round(done / total * 100) : 100 };
 }
 
@@ -163,8 +163,8 @@ function methodConfigured(method) {
   return !!(method.binding && method.binding.propertyKey);
 }
 
-function eventConfigured(binding) {
-  return !!(binding && binding.propertyKey && (binding.rules || []).filter(Boolean).length);
+function eventConfigured(event) {
+  return !!(event && event.binding && event.binding.propertyKey);
 }
 
 async function newDevice() {
@@ -234,16 +234,12 @@ function normalizeDeviceDraft(device) {
   return draft;
 }
 
-// 告警配置归一化：rule 为模板规则快照；binding 为监测属性点位关联（属性点位 + 判断方法 + 规则 key 列表）
+// 告警配置归一化：events 为条目数组（规则定义 + binding.propertyKey 监测点位）
 function normalizeDeviceEvents(events) {
-  events = events || {};
-  events.rule = events.rule || [];
-  events.binding = (events.binding || []).map(binding => ({
-    propertyKey: binding.propertyKey || '',
-    method: binding.method || 'or',
-    rules: binding.rules || []
+  return (Array.isArray(events) ? events : []).map(event => ({
+    ...event,
+    binding: { propertyKey: (event && event.binding && event.binding.propertyKey) || '' }
   }));
-  return events;
 }
 
 // 属性绑定归一化：方法默认 ept；来源为网关/通道/设备/属性 四级定位，允许留空（未绑定）
@@ -269,7 +265,7 @@ function applyDeviceTemplate(code) {
   state.deviceDraft.templateVersion = template.version || '';
   state.deviceDraft.properties = (draft.properties || []).map(property => ({ ...property, mode: property.mode || 'physical', binding: normalizePropertyBinding(null) }));
   state.deviceDraft.methods = (draft.methods || []).map(method => ({ ...method, binding: { propertyKey: '' } }));
-  state.deviceDraft.events = { rule: draft.events || [], binding: [] };
+  state.deviceDraft.events = (draft.events || []).map(event => ({ ...event, binding: { propertyKey: '' } }));
   renderDeviceWizard();
 }
 
@@ -317,30 +313,73 @@ function bindDeviceProfile() {
   document.getElementById('device-enabled').addEventListener('change', event => state.deviceDraft.enabled = event.target.value === 'true');
 }
 
+// 已配置来源 → 网关/通道/设备/属性点 四级独立彩色标签 + 编辑/删除按钮
+function sourceTags(property, index) {
+  const sources = (property.binding && property.binding.sources) || [];
+  const rows = sources.map((source, srcIndex) => {
+    const deviceEntry = findSourceDevice(source.gatewayId, source.channelId, source.deviceId);
+    const deviceName = deviceEntry ? (deviceEntry.deviceName || deviceEntry.modelName) : '';
+    const srcProperty = deviceEntry && source.propertyId
+      ? (deviceEntry.properties || []).find(p => p.id === source.propertyId)
+      : null;
+    const tags = [
+      `<span class="source-tag lv-gw" title="${escapeHtml(source.gatewayId || '')}">${escapeHtml(source.gatewayId || '网关')}</span>`,
+      `<span class="source-tag lv-ch">${source.channelId >= 0 ? '通道' + source.channelId : '通道'}</span>`,
+      `<span class="source-tag lv-dev" title="${escapeHtml(deviceName || '')}">${source.deviceId >= 0 ? '设备' + source.deviceId : '设备'}</span>`,
+      `<span class="source-tag lv-prop" title="${escapeHtml(srcProperty ? srcProperty.name || source.propertyId : '')}">${escapeHtml(source.propertyId || '属性')}</span>`
+    ].join('');
+    return `<div class="source-tag-entry">${tags}
+      <button class="btn btn-sm btn-outline-primary source-tag-btn" onclick="openSourceModal(${index},${srcIndex})" title="编辑来源"><i class="bi bi-pencil"></i></button>
+      <button class="btn btn-sm btn-outline-danger source-tag-btn" onclick="removePropertySource(${index},${srcIndex})" title="删除来源"><i class="bi bi-trash"></i></button>
+    </div>`;
+  });
+  return rows.length ? rows.join('') : '<span class="text-muted small">未绑定</span>';
+}
+
 function devicePropertiesBody() {
   const rows = state.deviceDraft.properties.map((property, index) => {
     const binding = property.binding;
-    const sources = binding.sources || [];
-    const methods = property.type === 'status' ? ['ept'] : BINDING_METHODS;
+    const isLogical = property.mode === 'logical';
+    const isEpt = !binding.method || binding.method === 'ept';
     const modeCell = `<select class="form-select form-select-sm property-mode-select" onchange="setPropertyMode(${index}, this.value)">${PROPERTY_MODES.map(m => `<option value="${m.value}" ${property.mode === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}</select>`;
-    if (property.mode === 'logical') {
-      return `<tr><td><strong>${escapeHtml(property.name)}</strong><div><code>${escapeHtml(property.key)}</code></div></td><td>${typeBadge(property.type)}</td><td>${modeCell}</td><td class="text-muted">—</td><td><span class="badge-pill badge-w">逻辑点位</span> <span class="text-muted small">值由服务下发或外部写入</span></td><td class="text-muted text-center">—</td></tr>`;
+
+    // 方法列：物理点位锁定 ept；逻辑数值点位可选聚合方法；status 仅 ept
+    let methodCell;
+    if (!isLogical || property.type === 'status') {
+      methodCell = `<select class="form-select form-select-sm" disabled><option value="ept" selected>ept</option></select>`;
+    } else {
+      methodCell = `<select class="form-select form-select-sm" onchange="setPropertyBindingMethod(${index}, this.value)">${BINDING_METHODS.map(method => `<option value="${method}" ${binding.method === method ? 'selected' : ''}>${method}</option>`).join('')}</select>`;
     }
-    // 来源行（四级下拉）；操作列：每来源一个删除按钮 + 一个添加按钮，水平靠右排列
-    const sourceRows = sources.map((source, sourceIndex) => `
-      <div class="binding-source-row">${sourceSelects(source, `updatePropertySource(${index},${sourceIndex}`)}</div>`).join('');
-    const actions = sources.map((source, sourceIndex) => `
-      <button class="btn btn-sm btn-outline-danger binding-del-btn" onclick="removePropertySource(${index},${sourceIndex})" title="删除来源"><i class="bi bi-trash"></i></button>`).join('') +
-      `<button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addPropertySource(${index})" title="添加来源"><i class="bi bi-plus-lg"></i></button>`;
-    return `<tr><td><strong>${escapeHtml(property.name)}</strong><div><code>${escapeHtml(property.key)}</code></div></td><td>${typeBadge(property.type)}</td><td>${modeCell}</td><td><select class="form-select form-select-sm" onchange="setPropertyBindingMethod(${index}, this.value)">${methods.map(method => `<option value="${method}" ${binding.method === method ? 'selected' : ''}>${method}</option>`).join('')}</select></td><td><div class="binding-source-list">${sourceRows}</div></td><td class="binding-actions">${actions}</td></tr>`;
+
+    // 来源区与操作列
+    let sourceCell, addBtn;
+    if (!isLogical) {
+      // 物理点位：至多一个来源
+      sourceCell = `<div class="source-tag-list">${sourceTags(property, index)}</div>`;
+      addBtn = (binding.sources || []).length < 1
+        ? `<button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addPropertySource(${index})" title="添加来源"><i class="bi bi-plus-lg"></i></button>`
+        : '';
+    } else if (isEpt) {
+      // ept 逻辑点位：由服务下发或外部写入，不绑定来源
+      sourceCell = `<span class="badge-pill badge-w">逻辑点位</span> <span class="text-muted small">值由服务下发或外部写入</span>`;
+      addBtn = '';
+    } else {
+      // 非 ept 逻辑点位：多来源聚合，只读
+      sourceCell = `<div class="source-tag-list">${sourceTags(property, index)}</div>`;
+      addBtn = `<button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addPropertySource(${index})" title="添加来源"><i class="bi bi-plus-lg"></i></button>`;
+    }
+
+    return `<tr><td class="text-muted idx-col">${property.number ?? index}</td><td class="name-col"><strong>${escapeHtml(property.name)}</strong><div><code>${escapeHtml(property.key)}</code></div></td><td class="type-col">${typeBadge(property.type)}</td><td>${modeCell}</td><td>${methodCell}</td><td>${sourceCell}</td><td class="binding-actions">${addBtn}</td></tr>`;
   }).join('');
-  return `<div class="info-banner"><i class="bi bi-sliders me-2" style="color:var(--primary)"></i><span class="text-muted">状态属性仅支持 ept；数值属性可选择聚合方法并配置多个来源。逻辑点位不绑定来源，值由服务下发或外部模块写入。</span><button class="btn btn-outline-primary btn-sm ms-auto flex-shrink-0" onclick="discoverFromTopology()" title="通过网关查询接口获取通道/设备拓扑，合并进来源目录"><i class="bi bi-diagram-3 me-1"></i>发现设备</button></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>模板属性</th><th>类型</th><th>点位模式</th><th>方法</th><th>实际来源（网关 / 通道 / 设备 / 属性）</th><th class="text-center"></th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-muted py-4">模板没有属性</td></tr>'}</tbody></table></div>`;
+  return `<div class="info-banner"><i class="bi bi-sliders me-2" style="color:var(--primary)"></i><span class="text-muted">物理点位仅 ept、单来源；逻辑点位 ept 由服务下发或外部写入，非 ept 需聚合多个物理来源（只读）。每个来源标签可单独编辑或删除。</span><button class="btn btn-outline-primary btn-sm ms-auto flex-shrink-0" onclick="discoverFromTopology()" title="通过网关查询接口获取通道/设备拓扑，合并进来源目录"><i class="bi bi-diagram-3 me-1"></i>发现设备</button></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th class="idx-col">编号</th><th class="name-col">模板属性</th><th class="type-col">类型</th><th>点位模式</th><th>方法</th><th>已绑定来源</th><th class="text-center"></th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="text-center text-muted py-4">模板没有属性</td></tr>'}</tbody></table></div>`;
 }
 
 function setPropertyMode(index, mode) {
   const property = state.deviceDraft.properties[index];
   property.mode = mode;
-  property.binding = mode === 'logical' ? { method: 'ept', sources: [] } : normalizePropertyBinding(null);
+  property.binding = mode === 'logical'
+    ? { method: 'ept', sources: [] }
+    : normalizePropertyBinding(null);
   renderDeviceWizard();
 }
 
@@ -363,38 +402,6 @@ function findSourceDevice(gatewayId, channelIndex, deviceIndex) {
   return state.sources.find(s => s.gatewayId === gatewayId && s.channelIndex === channelIndex && s.deviceIndex === deviceIndex);
 }
 
-// 四级级联下拉（网关 / 通道 / 设备 / 属性），updatePrefix 形如 `updatePropertySource(${index},${sourceIndex}`
-function sourceSelects(source, updatePrefix) {
-  const gateways = sourceGateways();
-  const gatewayKnown = gateways.includes(source.gatewayId);
-  const channels = gatewayKnown ? sourceChannels(source.gatewayId) : [];
-  const channelKnown = channels.includes(source.channelId);
-  const devices = channelKnown ? sourceDeviceEntries(source.gatewayId, source.channelId) : [];
-  const deviceKnown = devices.some(d => d.deviceIndex === source.deviceId);
-  const src = deviceKnown ? findSourceDevice(source.gatewayId, source.channelId, source.deviceId) : null;
-  const properties = (src && src.properties) || [];
-  const propertyKnown = properties.some(p => p.id === source.propertyId);
-  return `
-    <select class="form-select form-select-sm" onchange="${updatePrefix},'gatewayId',this.value)">
-      <option value="">网关ID</option>
-      ${source.gatewayId && !gatewayKnown ? `<option value="${escapeHtml(source.gatewayId)}" selected>${escapeHtml(source.gatewayId)}（暂未发现）</option>` : ''}
-      ${gateways.map(g => `<option value="${escapeHtml(g)}" ${g === source.gatewayId ? 'selected' : ''}>${escapeHtml(g)}</option>`).join('')}
-    </select>
-    <select class="form-select form-select-sm" onchange="${updatePrefix},'channelId',this.value)" ${gatewayKnown ? '' : 'disabled'}>
-      <option value="">通道ID</option>
-      ${channels.map(c => `<option value="${c}" ${c === source.channelId ? 'selected' : ''}>${c}</option>`).join('')}
-    </select>
-    <select class="form-select form-select-sm" onchange="${updatePrefix},'deviceId',this.value)" ${channelKnown ? '' : 'disabled'}>
-      <option value="">设备ID</option>
-      ${devices.map(d => `<option value="${d.deviceIndex}" ${d.deviceIndex === source.deviceId ? 'selected' : ''}>${d.deviceIndex}${(d.deviceName || d.modelName) ? ' · ' + escapeHtml(d.deviceName || d.modelName) : ''}</option>`).join('')}
-    </select>
-    <select class="form-select form-select-sm" onchange="${updatePrefix},'propertyId',this.value)" ${deviceKnown ? '' : 'disabled'}>
-      <option value="">属性ID</option>
-      ${source.propertyId && deviceKnown && !propertyKnown ? `<option value="${escapeHtml(source.propertyId)}" selected>${escapeHtml(source.propertyId)}（暂未发现）</option>` : ''}
-      ${properties.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === source.propertyId ? 'selected' : ''}>${escapeHtml(p.name || p.id)} (${escapeHtml(p.id)})</option>`).join('')}
-    </select>`;
-}
-
 // 级联更新来源字段：上游变更时重置下游选择
 function applySourceField(source, field, value) {
   if (field === 'gatewayId') {
@@ -415,13 +422,24 @@ function applySourceField(source, field, value) {
 }
 
 function setPropertyBindingMethod(index, method) {
-  state.deviceDraft.properties[index].binding.method = method;
+  const property = state.deviceDraft.properties[index];
+  property.binding.method = method;
+  if (method === 'ept') {
+    property.binding.sources = []; // ept 逻辑点位不绑定来源
+  } else if ((property.binding.sources || []).length < 2) {
+    // 切到聚合方法时至少两个来源
+    const sources = property.binding.sources || [];
+    while (sources.length < 2) sources.push({ gatewayId: '', channelId: -1, deviceId: -1, propertyId: '' });
+    property.binding.sources = sources;
+  }
   renderDeviceWizard();
 }
 
 function addPropertySource(index) {
-  const binding = state.deviceDraft.properties[index].binding;
-  binding.sources.push({ gatewayId: '', channelId: -1, deviceId: -1, propertyId: '' });
+  const property = state.deviceDraft.properties[index];
+  if (property.mode !== 'logical' && (property.binding.sources || []).length >= 1) return; // 物理点位至多一个来源
+  if (property.mode === 'logical' && (!property.binding.method || property.binding.method === 'ept')) return; // ept 逻辑点位不绑定来源
+  property.binding.sources.push({ gatewayId: '', channelId: -1, deviceId: -1, propertyId: '' });
   renderDeviceWizard();
 }
 
@@ -430,8 +448,92 @@ function removePropertySource(index, sourceIndex) {
   renderDeviceWizard();
 }
 
-function updatePropertySource(index, sourceIndex, field, value) {
-  applySourceField(state.deviceDraft.properties[index].binding.sources[sourceIndex], field, value);
+// ===== 来源编辑弹窗：仅对单个来源做四级下拉绑定（网关/通道/设备/属性） =====
+let _editingSourcePropIndex = -1;
+let _editingSourceIndex = -1;
+let _sourceModalSnapshot = null;
+
+function openSourceModal(propIndex, srcIndex) {
+  const property = state.deviceDraft.properties[propIndex];
+  if (!property) return;
+  // ept 逻辑点位不绑定来源，无来源可编辑
+  if (property.mode === 'logical' && (!property.binding.method || property.binding.method === 'ept')) return;
+  const source = property.binding.sources[srcIndex];
+  if (!source) return;
+  _editingSourcePropIndex = propIndex;
+  _editingSourceIndex = srcIndex;
+  _sourceModalSnapshot = JSON.stringify(source);
+  renderSourceModalBody();
+  new bootstrap.Modal(document.getElementById('sourceModal')).show();
+}
+
+function editingSource() {
+  return state.deviceDraft.properties[_editingSourcePropIndex].binding.sources[_editingSourceIndex];
+}
+
+function renderSourceModalBody() {
+  const property = state.deviceDraft.properties[_editingSourcePropIndex];
+  const source = editingSource();
+  document.getElementById('src-modal-body').innerHTML = `
+    <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+      <span class="fw-semibold">${escapeHtml(property.name)}</span>
+      <code>${escapeHtml(property.key)}</code>
+      ${typeBadge(property.type)}
+      <span class="text-muted small">来源 ${_editingSourceIndex + 1}</span>
+    </div>
+    <div class="row g-2">
+      <div class="col-3"><label class="form-label small fw-semibold">网关</label><select class="form-select form-select-sm" onchange="updateModalSource('gatewayId', this.value)">${gatewayOptions(source.gatewayId)}</select></div>
+      <div class="col-3"><label class="form-label small fw-semibold">通道</label><select class="form-select form-select-sm" onchange="updateModalSource('channelId', this.value)">${channelOptions(source)}</select></div>
+      <div class="col-3"><label class="form-label small fw-semibold">设备</label><select class="form-select form-select-sm" onchange="updateModalSource('deviceId', this.value)">${deviceOptions(source)}</select></div>
+      <div class="col-3"><label class="form-label small fw-semibold">属性点</label><select class="form-select form-select-sm" onchange="updateModalSource('propertyId', this.value)">${propertyOptions(source)}</select></div>
+    </div>`;
+}
+
+// 以下四个选项渲染函数与列表级联保持一致的已知/未知处理
+function gatewayOptions(selected) {
+  const gateways = sourceGateways();
+  const known = gateways.includes(selected);
+  return `<option value="">请选择网关</option>` +
+    (selected && !known ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}（暂未发现）</option>` : '') +
+    gateways.map(g => `<option value="${escapeHtml(g)}" ${g === selected ? 'selected' : ''}>${escapeHtml(g)}</option>`).join('');
+}
+function channelOptions(source) {
+  const channels = sourceGateways().includes(source.gatewayId) ? sourceChannels(source.gatewayId) : [];
+  return `<option value="">请选择通道</option>` +
+    channels.map(c => `<option value="${c}" ${c === source.channelId ? 'selected' : ''}>${c}</option>`).join('');
+}
+function deviceOptions(source) {
+  const devices = sourceChannels(source.gatewayId).includes(source.channelId) ? sourceDeviceEntries(source.gatewayId, source.channelId) : [];
+  return `<option value="">请选择设备</option>` +
+    devices.map(d => `<option value="${d.deviceIndex}" ${d.deviceIndex === source.deviceId ? 'selected' : ''}>${d.deviceIndex}${(d.deviceName || d.modelName) ? ' · ' + escapeHtml(d.deviceName || d.modelName) : ''}</option>`).join('');
+}
+function propertyOptions(source) {
+  const src = findSourceDevice(source.gatewayId, source.channelId, source.deviceId);
+  const properties = (src && src.properties) || [];
+  const known = properties.some(p => p.id === source.propertyId);
+  return `<option value="">请选择属性点</option>` +
+    (source.propertyId && src && !known ? `<option value="${escapeHtml(source.propertyId)}" selected>${escapeHtml(source.propertyId)}（暂未发现）</option>` : '') +
+    properties.map(p => `<option value="${escapeHtml(p.id)}" ${p.id === source.propertyId ? 'selected' : ''}>${escapeHtml(p.name || p.id)} (${escapeHtml(p.id)})</option>`).join('');
+}
+
+function updateModalSource(field, value) {
+  applySourceField(editingSource(), field, value);
+  renderSourceModalBody();
+}
+function cancelSourceModal() {
+  if (_editingSourcePropIndex >= 0 && _sourceModalSnapshot) {
+    state.deviceDraft.properties[_editingSourcePropIndex].binding.sources[_editingSourceIndex] = JSON.parse(_sourceModalSnapshot);
+  }
+  closeSourceModal();
+}
+function saveSourceModal() {
+  closeSourceModal();
+}
+function closeSourceModal() {
+  bootstrap.Modal.getInstance(document.getElementById('sourceModal'))?.hide();
+  _editingSourcePropIndex = -1;
+  _editingSourceIndex = -1;
+  _sourceModalSnapshot = null;
   renderDeviceWizard();
 }
 
@@ -439,9 +541,9 @@ function deviceMethodsBody() {
   const rows = state.deviceDraft.methods.map((method, index) => {
     const binding = method.binding || { propertyKey: '' };
     const target = state.deviceDraft.properties.find(property => property.key === binding.propertyKey);
-    return `<tr><td><code>${escapeHtml(method.key)}</code></td><td><strong>${escapeHtml(method.name)}</strong></td><td>${typeBadge(method.type)}</td><td>${methodTargetSelect(method, index)}</td><td>${methodPointTypeCell(target)}</td></tr>`;
+    return `<tr><td class="text-muted">${method.number ?? index}</td><td><code>${escapeHtml(method.key)}</code></td><td><strong>${escapeHtml(method.name)}</strong></td><td>${typeBadge(method.type)}</td><td>${methodTargetSelect(method, index)}</td><td>${methodPointTypeCell(target)}</td></tr>`;
   }).join('');
-  return `<div class="info-banner"><i class="bi bi-gear me-2" style="color:var(--primary)"></i><span class="text-muted">每个服务绑定一个目标属性点位（写出的属性）。目标属性为物理点位时下发到其绑定来源；为逻辑点位时写入缓存并北向发布。留空表示暂不启用该服务。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>服务</th><th>服务名称</th><th>类型</th><th>目标属性点</th><th>点位类型</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="text-center text-muted py-4">模板没有服务</td></tr>'}</tbody></table></div>`;
+  return `<div class="info-banner"><i class="bi bi-gear me-2" style="color:var(--primary)"></i><span class="text-muted">每个服务绑定一个目标属性点位（写出的属性）。目标属性为物理点位时下发到其绑定来源；为逻辑点位时写入缓存并北向发布。留空表示暂不启用该服务。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>编号</th><th>服务</th><th>服务名称</th><th>类型</th><th>目标属性点</th><th>点位类型</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-muted py-4">模板没有服务</td></tr>'}</tbody></table></div>`;
 }
 
 // 服务目标属性点位选择：仅列出与服务类型一致的属性。
@@ -466,66 +568,32 @@ function setMethodTarget(index, propertyKey) {
   renderDeviceWizard();
 }
 
-// ===== 告警映射：检测点位 → 规则关联 =====
+// ===== 告警映射：一条告警规则绑定一个监测点位 =====
 function alarmConditionText(rule) {
   const op = rule.type === 'equal' ? '=' : rule.type === 'upper' ? '>' : rule.type === 'lower' ? '<' : '?';
-  return `${op} ${rule.threshold}`;
-}
-
-function alarmRuleLabel(rule) {
-  const level = EVENT_LEVELS[rule.level] || EVENT_LEVELS[0];
-  return `${rule.name} · ${level.name} · ${alarmConditionText(rule)}`;
+  const duration = rule.time > 0 ? `持续${rule.time / 1000}s` : '立即';
+  return `${op} ${rule.threshold} · ${duration}`;
 }
 
 function deviceEventsBody() {
   const events = state.deviceDraft.events;
-  const rules = events.rule;
-  const bindings = events.binding;
-  if (!rules.length) {
+  if (!events.length) {
     return `<div class="info-banner"><i class="bi bi-bell me-2" style="color:var(--primary)"></i><span class="text-muted">当前模板没有定义告警规则，请先在模板的告警配置中添加。</span></div>`;
   }
-  const rows = bindings.map((binding, index) => {
-    const ruleCount = binding.rules.filter(Boolean).length;
-    const method = ruleCount >= 2 ? (['and', 'or'].includes(binding.method) ? binding.method : 'or') : 'ept';
-    // 监测属性点位：下拉选择模板属性 + 行内删除
-    const pointCell = `<div class="d-flex align-items-center gap-2"><select class="form-select form-select-sm alarm-point-select" onchange="setAlarmPropertyKey(${index}, this.value)"><option value="">请选择监测属性点位</option>${alarmPointOptions(binding.propertyKey)}</select><button class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="removeAlarmPoint(${index})" title="删除监测点位"><i class="bi bi-trash"></i></button></div>`;
-    // 规则行：下拉选项过滤本关联中已选规则，避免重复
-    const ruleRows = binding.rules.map((ruleKey, ruleIndex) => {
-      const others = binding.rules.filter((_, i) => i !== ruleIndex);
-      const options = rules.filter(rule => rule.key === ruleKey || !others.includes(rule.key)).map(rule => `<option value="${escapeHtml(rule.key)}" ${rule.key === ruleKey ? 'selected' : ''}>${escapeHtml(alarmRuleLabel(rule))}</option>`).join('');
-      return `<select class="form-select form-select-sm" onchange="updateAlarmRule(${index},${ruleIndex},this.value)"><option value="">请选择告警规则</option>${options}</select>`;
-    }).join('');
-    // 删除列：与规则行一一对应；添加列：每个监测点位一个 + 号
-    const dels = binding.rules.map((ruleKey, ruleIndex) => `<button class="btn btn-sm btn-outline-danger binding-del-btn" onclick="removeAlarmRule(${index},${ruleIndex})" title="删除规则关联"><i class="bi bi-trash"></i></button>`).join('');
-    const methodSelect = ruleCount >= 2
-      ? `<select class="form-select form-select-sm" onchange="updateAlarmMethod(${index},this.value)"><option value="and" ${method === 'and' ? 'selected' : ''}>and</option><option value="or" ${method === 'or' ? 'selected' : ''}>or</option></select>`
-      : `<select class="form-select form-select-sm" disabled><option value="ept" selected>ept</option></select>`;
-    return `<tr><td>${pointCell}</td><td>${methodSelect}</td><td><div class="binding-source-list">${ruleRows || '<div class="text-muted small">尚未关联规则</div>'}</div></td><td class="binding-actions">${dels}<button class="btn btn-sm btn-outline-secondary binding-add-btn" onclick="addAlarmRule(${index})" title="添加规则关联"><i class="bi bi-plus-lg"></i></button></td></tr>`;
+  const rows = events.map((event, index) => {
+    const level = EVENT_LEVELS[event.level] || EVENT_LEVELS[0];
+    const pointCell = `<select class="form-select form-select-sm alarm-point-select" onchange="setAlarmPropertyKey(${index}, this.value)"><option value="">请选择监测属性点位</option>${alarmPointOptions(event.binding.propertyKey)}</select>`;
+    return `<tr><td class="text-muted">${event.number ?? index}</td><td><strong>${escapeHtml(event.name)}</strong><div><code>${escapeHtml(event.key)}</code></div></td><td><span class="badge-pill ${level.cls}">${level.name}</span></td><td>${escapeHtml(alarmConditionText(event))}</td><td>${pointCell}</td></tr>`;
   }).join('');
-  return `<div class="info-banner"><i class="bi bi-bell me-2" style="color:var(--primary)"></i><span class="text-muted">一个监测属性点位可关联多条告警规则：单条规则 ept 直接判定；多条规则可选 and（全部成立）或 or（任一成立）。监测的是属性点位归一化后的值（物理聚合值或逻辑缓存值）。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>监测属性点位</th><th>判断方法</th><th>关联告警规则（模板）</th><th class="text-center"></th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="text-center text-muted py-4">尚未配置监测点位</td></tr>'}</tbody></table></div><button class="btn btn-outline-secondary btn-sm mt-2" onclick="addAlarmPoint()"><i class="bi bi-plus-lg"></i> 添加监测点位</button>`;
+  return `<div class="info-banner"><i class="bi bi-bell me-2" style="color:var(--primary)"></i><span class="text-muted">每条告警规则绑定一个监测属性点位，独立判定（含各自持续时间）；同一点位可被多条规则监测。监测的是属性点位归一化后的值（物理聚合值或逻辑缓存值）。</span></div><div class="table-responsive"><table class="table binding-table align-middle"><thead><tr><th>编号</th><th>告警规则</th><th>级别</th><th>触发条件</th><th>监测属性点位</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function alarmPointOptions(selectedKey) {
   return state.deviceDraft.properties.map(property => `<option value="${escapeHtml(property.key)}" ${property.key === selectedKey ? 'selected' : ''}>${escapeHtml(property.name)} (${escapeHtml(property.key)})${property.mode === 'logical' ? ' · 逻辑' : ''}</option>`).join('');
 }
 
-function addAlarmPoint() {
-  state.deviceDraft.events.binding.push({ propertyKey: '', method: 'or', rules: [''] });
-  renderDeviceWizard();
-}
-function removeAlarmPoint(index) { state.deviceDraft.events.binding.splice(index, 1); renderDeviceWizard(); }
 function setAlarmPropertyKey(index, propertyKey) {
-  state.deviceDraft.events.binding[index].propertyKey = propertyKey || '';
-  renderDeviceWizard();
-}
-function addAlarmRule(index) { state.deviceDraft.events.binding[index].rules.push(''); renderDeviceWizard(); }
-function removeAlarmRule(index, ruleIndex) { state.deviceDraft.events.binding[index].rules.splice(ruleIndex, 1); renderDeviceWizard(); }
-function updateAlarmRule(index, ruleIndex, value) {
-  state.deviceDraft.events.binding[index].rules[ruleIndex] = value;
-  renderDeviceWizard();
-}
-function updateAlarmMethod(index, method) {
-  state.deviceDraft.events.binding[index].method = method;
+  state.deviceDraft.events[index].binding.propertyKey = propertyKey || '';
   renderDeviceWizard();
 }
 
@@ -557,11 +625,12 @@ async function saveDeviceDraft() {
     toast('请完善设备档案信息', 'error');
     return;
   }
-  // 保存前清洗告警关联：过滤空规则行、剔除完全未配置的关联
+  // 保存前清洗告警条目：监测点位去空白（后端还会按模板快照重新水合）
   const payload = JSON.parse(JSON.stringify(state.deviceDraft));
-  payload.events.binding = payload.events.binding
-    .map(binding => ({ ...binding, rules: binding.rules.filter(Boolean) }))
-    .filter(binding => binding.propertyKey || binding.rules.length);
+  payload.events = (payload.events || []).map(event => ({
+    ...event,
+    binding: { propertyKey: (event.binding && event.binding.propertyKey || '').trim() }
+  }));
   try {
     await DevicesAPI.save(payload);
     await loadDevices();

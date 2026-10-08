@@ -300,9 +300,9 @@
         },
         {
             "number": 20,
-            "name": "测试逻辑",
-            "key": "test",
-            "default": 0,
+            "name": "虚拟点写",
+            "key": "vpoint",
+            "default": null,
             "unit": "",
             "type": "number",
             "description": [],
@@ -346,13 +346,13 @@
         },
         {
             "number": 2,
-            "name": "测试点",
-            "key": "test",
-            "desc": "测试写",
+            "name": "写虚拟点",
+            "key": "setPoint",
+            "desc": "",
             "type": "number",
             "validation": {
                 "min": 0,
-                "max": 0
+                "max": 100
             },
             "descriptions": [],
             "binding": {
@@ -369,7 +369,10 @@
             "level": 1,
             "type": "equal",
             "threshold": 0,
-            "time": 3000
+            "time": 3000,
+            "binding": {
+                "propertyKey": ""
+            }
         },
         {
             "number": 1,
@@ -379,7 +382,10 @@
             "level": 2,
             "type": "upper",
             "threshold": 20,
-            "time": 1000
+            "time": 1000,
+            "binding": {
+                "propertyKey": ""
+            }
         }
     ]
 }

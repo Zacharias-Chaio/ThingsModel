@@ -250,7 +250,12 @@ func hydrateDeviceSnapshot(config *store.DeviceConfig, template *store.Template)
 	for _, method := range config.Methods {
 		methodBindings[method.Key] = method.Binding
 	}
-	alarmBindings := config.Events.Binding
+	eventBindings := make(map[string]store.EventBinding, len(config.Events))
+	for _, event := range config.Events {
+		if event.Binding.PropertyKey != "" {
+			eventBindings[event.Key] = event.Binding
+		}
+	}
 
 	config.TemplateVersion = template.Version
 	config.Properties = make([]store.Property, len(template.Properties))
@@ -263,20 +268,27 @@ func hydrateDeviceSnapshot(config *store.DeviceConfig, template *store.Template)
 		if property.Mode != store.PropertyModeLogical {
 			property.Mode = store.PropertyModePhysical
 		}
+		property.ID = fmt.Sprintf("property_%d", property.Number)
 		config.Properties[index] = property
 	}
 	config.Methods = make([]store.Method, len(template.Methods))
 	for index, method := range template.Methods {
 		method.Binding = methodBindings[method.Key]
+		method.ID = fmt.Sprintf("method_%d", method.Number)
 		config.Methods[index] = method
 	}
-	config.Events.Rule = make([]store.Event, len(template.Events))
-	copy(config.Events.Rule, template.Events)
-	config.Events.Binding = pruneAlarmBindings(alarmBindings, template.Events)
+	// 告警：以模板最新定义为准，按 key 保留实例已配置的监测点位绑定；
+	// 模板新增的告警带入（binding 留空），删除的告警及其绑定一并移除。
+	config.Events = make(store.Events, len(template.Events))
+	for index, event := range template.Events {
+		event.Binding = eventBindings[event.Key]
+		event.ID = fmt.Sprintf("event_%d", event.Number)
+		config.Events[index] = event
+	}
 }
 
 // syncDevicesFromTemplate 把模板的最新定义同步到所有引用该模板的设备实例：
-// 重新水合快照（按 key 保留已配置绑定）、剔除已删除告警规则的引用并持久化。
+// 重新水合快照（按 key 保留已配置绑定）、移除模板中已删除的告警条目并持久化。
 // 返回成功更新的设备数量；单个设备失败时中止并返回错误。
 func (s *Server) syncDevicesFromTemplate(template *store.Template) (int, error) {
 	if s.DB == nil {
@@ -320,8 +332,10 @@ func normalizeDeviceConfig(config *store.DeviceConfig) {
 		}
 		property.Binding.Sources = stripEmptySources(property.Binding.Sources)
 	}
-	// 告警关联：过滤空行并归一化判断方法（单规则 ept，多规则默认 or）
-	config.Events.Binding = normalizeAlarmBindings(config.Events.Binding)
+	// 告警条目：点位绑定去空白
+	for i := range config.Events {
+		config.Events[i].Binding.PropertyKey = strings.TrimSpace(config.Events[i].Binding.PropertyKey)
+	}
 	for i := range config.Methods {
 		if strings.TrimSpace(config.Methods[i].Binding.PropertyKey) == "" {
 			config.Methods[i].Binding = store.MethodBinding{}
@@ -337,41 +351,46 @@ func normalizeDeviceConfig(config *store.DeviceConfig) {
 	if config.Methods == nil {
 		config.Methods = []store.Method{}
 	}
-	if config.Events.Rule == nil {
-		config.Events.Rule = []store.Event{}
+	if config.Events == nil {
+		config.Events = store.Events{}
 	}
 }
 
 func validatePropertyBinding(property store.Property) error {
-	if property.Mode == store.PropertyModeLogical {
-		if len(property.Binding.Sources) > 0 {
-			return errors.New("逻辑点位不应绑定来源")
-		}
-		return nil
-	}
 	binding := property.Binding
-	// 绑定不是必须的：无有效来源视为未绑定
-	if len(binding.Sources) == 0 {
-		return nil
+	method := binding.Method
+	if method == "" {
+		method = "ept"
 	}
-	if property.Type == "status" && binding.Method != "ept" {
-		return errors.New("状态属性只支持 EPT 直接绑定")
-	}
-	switch binding.Method {
-	case "ept", "not":
-		if len(binding.Sources) != 1 {
-			return fmt.Errorf("%s 需要一个来源", binding.Method)
+	if property.Mode == store.PropertyModePhysical {
+		// 物理点位：只支持 ept 直接绑定，且至多一个来源（可留空=未绑定）
+		if method != "ept" {
+			return errors.New("物理点位只支持 ept 直接绑定")
 		}
-	case "sum", "avg", "min", "max":
-		if len(binding.Sources) < 1 {
-			return fmt.Errorf("%s 至少需要一个来源", binding.Method)
+		if len(binding.Sources) > 1 {
+			return errors.New("物理点位只能绑定一个来源")
 		}
-	case "and", "or":
-		if len(binding.Sources) < 2 {
-			return fmt.Errorf("%s 至少需要两个来源", binding.Method)
+	} else {
+		// 逻辑点位
+		if method == "ept" {
+			// ept 逻辑点位：由服务下发或外部写入，不绑定来源
+			if len(binding.Sources) > 0 {
+				return errors.New("ept 逻辑点位由服务下发或外部写入，不应绑定来源")
+			}
+			return nil
 		}
-	default:
-		return errors.New("不支持的聚合方法")
+		// 非 ept 逻辑点位：多来源聚合，只读无写入权限
+		if property.Type == "status" {
+			return errors.New("状态属性只支持 ept 绑定")
+		}
+		switch method {
+		case "sum", "avg", "min", "max", "and", "or":
+			if len(binding.Sources) < 2 {
+				return fmt.Errorf("%s 聚合至少需要两个物理来源", method)
+			}
+		default:
+			return fmt.Errorf("不支持的聚合方法: %s", method)
+		}
 	}
 	for _, source := range binding.Sources {
 		if err := validateSource(source); err != nil {
@@ -392,6 +411,10 @@ func validateMethodBinding(method store.Method, properties []store.Property) err
 	}
 	if method.Type != target.Type {
 		return fmt.Errorf("服务类型(%s)与目标属性类型(%s)不一致", method.Type, target.Type)
+	}
+	// 控制目标必须可写：物理点位，或 ept 逻辑点位；非 ept 逻辑点位为只读聚合点位。
+	if target.Mode == store.PropertyModeLogical && target.Binding.Method != "" && target.Binding.Method != "ept" {
+		return fmt.Errorf("目标属性 %s 为聚合逻辑点位，只读不可作为控制目标", target.Name)
 	}
 	return nil
 }
@@ -424,93 +447,26 @@ func stripEmptySources(sources []store.BindingSource) []store.BindingSource {
 	return out
 }
 
-// validateAlarmEvents 校验告警监测点位关联：点位存在、规则存在且不重复、多规则方法为 and/or。
-func validateAlarmEvents(events store.DeviceEvents, properties []store.Property) error {
-	ruleKeys := make(map[string]bool, len(events.Rule))
-	for _, rule := range events.Rule {
-		ruleKeys[rule.Key] = true
-	}
-	for _, binding := range events.Binding {
-		pointEmpty := strings.TrimSpace(binding.PropertyKey) == ""
-		if pointEmpty && len(binding.Rules) == 0 {
+// validateAlarmEvents 校验告警条目：key 唯一、绑定点位（如已配置）存在。
+// 点位为空表示该告警暂未配置监测点位，允许保存。
+func validateAlarmEvents(events store.Events, properties []store.Property) error {
+	seen := make(map[string]bool, len(events))
+	for _, event := range events {
+		if strings.TrimSpace(event.Key) == "" {
+			return errors.New("告警配置：事件 key 不能为空")
+		}
+		if seen[event.Key] {
+			return fmt.Errorf("告警配置：事件 key 重复: %s", event.Key)
+		}
+		seen[event.Key] = true
+		propertyKey := strings.TrimSpace(event.Binding.PropertyKey)
+		if propertyKey == "" {
 			continue
 		}
-		if pointEmpty {
-			return errors.New("告警关联：请先选择监测点位")
-		}
-		if len(binding.Rules) == 0 {
-			return errors.New("告警关联：监测点位需关联至少一条告警规则")
-		}
-		if _, ok := findProperty(properties, binding.PropertyKey); !ok {
-			return fmt.Errorf("告警关联：监测属性点位 %s 不存在", binding.PropertyKey)
-		}
-		seen := make(map[string]bool, len(binding.Rules))
-		for _, key := range binding.Rules {
-			if !ruleKeys[key] {
-				return fmt.Errorf("告警关联：规则 %s 不存在", key)
-			}
-			if seen[key] {
-				return fmt.Errorf("告警关联：规则 %s 重复关联", key)
-			}
-			seen[key] = true
+		if _, ok := findProperty(properties, propertyKey); !ok {
+			return fmt.Errorf("告警配置：告警 %s 监测的属性点位 %s 不存在", event.Key, propertyKey)
 		}
 	}
 	return nil
 }
 
-// normalizeAlarmBindings 过滤空关联行（点位与规则均未选择），并归一化判断方法：
-// 单规则 ept，多规则 and/or（默认 or）。
-func normalizeAlarmBindings(bindings []store.AlarmBinding) []store.AlarmBinding {
-	out := make([]store.AlarmBinding, 0, len(bindings))
-	for _, binding := range bindings {
-		rules := make([]string, 0, len(binding.Rules))
-		for _, key := range binding.Rules {
-			if strings.TrimSpace(key) != "" {
-				rules = append(rules, strings.TrimSpace(key))
-			}
-		}
-		binding.Rules = rules
-		if strings.TrimSpace(binding.PropertyKey) == "" && len(rules) == 0 {
-			continue
-		}
-		if len(rules) <= 1 {
-			binding.Method = "ept"
-		} else if binding.Method != "and" && binding.Method != "or" {
-			binding.Method = "or"
-		}
-		out = append(out, binding)
-	}
-	return out
-}
-
-// pruneAlarmBindings 剔除已不在模板中的告警规则引用，并丢弃因此没有有效规则的
-// 检测点位；同时归一化判断方法（单规则 ept，多规则 and/or）。
-func pruneAlarmBindings(bindings []store.AlarmBinding, rules []store.Event) []store.AlarmBinding {
-	valid := make(map[string]bool, len(rules))
-	for _, rule := range rules {
-		valid[rule.Key] = true
-	}
-	out := make([]store.AlarmBinding, 0, len(bindings))
-	for _, binding := range bindings {
-		kept := make([]string, 0, len(binding.Rules))
-		for _, key := range binding.Rules {
-			if valid[key] {
-				kept = append(kept, key)
-			}
-		}
-		if len(kept) == 0 {
-			continue
-		}
-		binding.Rules = kept
-		if len(kept) <= 1 {
-			binding.Method = "ept"
-		} else if binding.Method != "and" && binding.Method != "or" {
-			binding.Method = "or"
-		}
-		out = append(out, binding)
-	}
-	if out == nil {
-		out = []store.AlarmBinding{}
-	}
-	return out
-}

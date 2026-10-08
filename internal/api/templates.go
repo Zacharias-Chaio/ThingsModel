@@ -61,18 +61,24 @@ func (s *Server) SaveTemplate(w http.ResponseWriter, r *http.Request) {
 		t.Methods = []store.Method{}
 	}
 	if t.Events == nil {
-		t.Events = []store.Event{}
+		t.Events = store.Events{}
 	}
 	if err := validateTemplate(&t); err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// 模板中不应包含 binding（binding 只在设备实例化时填入）
+	// 模板中不应包含 binding 与实例条目 ID（两者只在设备实例化时生成）
 	for i := range t.Properties {
 		t.Properties[i].Binding = store.Binding{}
+		t.Properties[i].ID = ""
 	}
 	for i := range t.Methods {
 		t.Methods[i].Binding = store.MethodBinding{}
+		t.Methods[i].ID = ""
+	}
+	for i := range t.Events {
+		t.Events[i].Binding = store.EventBinding{}
+		t.Events[i].ID = ""
 	}
 	if err := s.Templates.Save(&t); err != nil {
 		fail(w, http.StatusInternalServerError, err.Error())
