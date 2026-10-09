@@ -420,7 +420,7 @@ func (m *Manager) ReloadBus(settings config.App) error {
 
 // reloadSouth 重建南向客户端：遥测订阅 + cmdAck 接收 + cmd/query 请求方。
 func (m *Manager) reloadSouth(settings config.App) error {
-	candidate, err := natsclient.NewSouthClient(m.ctx, settings, m.handleTelemetry)
+	candidate, err := natsclient.NewSouthClient(settings, m.handleTelemetry)
 	if err != nil {
 		return err
 	}

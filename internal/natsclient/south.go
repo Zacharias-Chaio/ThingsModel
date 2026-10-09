@@ -52,8 +52,8 @@ type pendingAck struct {
 }
 
 // NewSouthClient 按配置创建南向客户端；未启用时返回 (nil, nil)。
-// ctx 仅为签名兼容保留：sweeper 生命周期跟随 Close，不再依赖进程级 ctx。
-func NewSouthClient(_ context.Context, app config.App, handler TelemetryHandler) (*SouthClient, error) {
+// sweeper 生命周期跟随 Close，不依赖进程级 ctx。
+func NewSouthClient(app config.App, handler TelemetryHandler) (*SouthClient, error) {
 	southConfig := app.Subscriber
 	if !southConfig.Enabled {
 		return nil, nil

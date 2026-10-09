@@ -119,40 +119,14 @@ type DeviceEvent struct {
 	Binding EventBinding `json:"binding"`
 }
 
-// Events 告警条目列表。自带旧格式兼容解析：
-// 旧对象 {"rule":[...], "binding":[{propertyKey, rules:[...]}]} 按规则逐条展开为新格式。
+// Events 告警条目列表，JSON 序列化为条目数组。
 type Events []DeviceEvent
 
 func (l *Events) UnmarshalJSON(data []byte) error {
 	var list []DeviceEvent
-	if err := json.Unmarshal(data, &list); err == nil {
-		*l = list
-		return nil
+	if err := json.Unmarshal(data, &list); err != nil {
+		return errors.New("events 格式无效：应为条目数组")
 	}
-	var legacy struct {
-		Rule    []Event `json:"rule"`
-		Binding []struct {
-			PropertyKey string   `json:"propertyKey"`
-			Rules       []string `json:"rules"`
-		} `json:"binding"`
-	}
-	if err := json.Unmarshal(data, &legacy); err != nil {
-		return errors.New("events 格式无效：应为条目数组或旧版 {rule, binding} 对象")
-	}
-	ruleMap := make(map[string]Event, len(legacy.Rule))
-	for _, rule := range legacy.Rule {
-		ruleMap[rule.Key] = rule
-	}
-	out := make([]DeviceEvent, 0)
-	for _, binding := range legacy.Binding {
-		for _, key := range binding.Rules {
-			rule, ok := ruleMap[key]
-			if !ok {
-				continue
-			}
-			out = append(out, DeviceEvent{Event: rule, Binding: EventBinding{PropertyKey: binding.PropertyKey}})
-		}
-	}
-	*l = out
+	*l = list
 	return nil
 }

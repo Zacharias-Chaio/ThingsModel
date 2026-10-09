@@ -38,4 +38,4 @@ go run . -db .\data\thingsmodel.db -templates .\templats
 
 保存平台设置会立即分别重载日志输出与两个 NATS 客户端；“软件重启”只重建运行时消息资源、清空已接收的来源缓存，HTTP 服务保持可用。
 
-详细的消息契约和处理规则见 [docs/nats-data-binding.md](docs/nats-data-binding.md)。
+详细的消息契约见：南向（面向网关）[docs/gateway-message-contract-design.md](docs/gateway-message-contract-design.md)；北向（面向下游）[docs/thingsmodel-message-contract-design.md](docs/thingsmodel-message-contract-design.md)。
