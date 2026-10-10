@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"thingsmodel/internal/natsclient"
 	"thingsmodel/internal/store"
 )
 
@@ -22,13 +23,15 @@ type Registry struct {
 }
 
 type entry struct {
-	config       store.DeviceConfig
-	revision     int64
-	updated      time.Time
-	properties   map[string]PropertyStatus
-	events       map[string]EventStatus
-	eventStarted map[string]time.Time
-	logical      map[string]logicalValue // key = property.Key，逻辑点位的缓存值
+	config        store.DeviceConfig
+	revision      int64
+	updated       time.Time
+	properties    map[string]PropertyStatus
+	events        map[string]EventStatus
+	eventStarted  map[string]time.Time
+	logical       map[string]logicalValue // key = property.Key，逻辑点位的缓存值
+	seq           uint64                  // 北向发布序列号（单调递增，跳号=下游丢消息）
+	lastPublished map[string]string       // scope → 上次发布的告警状态（沿检测基准）
 }
 
 // logicalValue 逻辑点位的一次写入：值、时间与来源（service=服务下发，external=外部写入，default 不落缓存）。
@@ -65,6 +68,7 @@ type DeviceStatus struct {
 }
 
 type PropertyStatus struct {
+	ID        string    `json:"id,omitempty"` // 实例条目 ID（property_N）
 	Key       string    `json:"key"`
 	Name      string    `json:"name"`
 	Unit      string    `json:"unit"`
@@ -86,6 +90,7 @@ type MethodStatus struct {
 }
 
 type EventStatus struct {
+	ID        string    `json:"id,omitempty"` // 实例条目 ID（event_N）
 	Key       string    `json:"key"`
 	Name      string    `json:"name"`
 	Level     int       `json:"level"`
@@ -144,6 +149,8 @@ type FanoutMessage struct {
 	TemplateCode    string
 	TemplateVersion string
 	DataStatus      string
+	ConfigRevision  int64
+	Seq             uint64
 	Properties      []PropertyStatus
 	Events          []EventStatus
 	Timestamp       time.Time
@@ -182,12 +189,14 @@ func (r *Registry) Apply(configs []store.DeviceConfig) {
 				exists = false
 			}
 		}
-		device := entry{config: config, revision: revision, updated: now, properties: make(map[string]PropertyStatus), events: make(map[string]EventStatus), eventStarted: make(map[string]time.Time)}
+		device := entry{config: config, revision: revision, updated: now, properties: make(map[string]PropertyStatus), events: make(map[string]EventStatus), eventStarted: make(map[string]time.Time), lastPublished: make(map[string]string)}
 		if exists {
 			device.properties = current.properties
 			device.events = current.events
 			device.eventStarted = current.eventStarted
+			device.lastPublished = current.lastPublished // 配置未变化：延续沿检测基准
 		}
+		device.seq = current.seq // 延续发布序列号（新设备 current 为零值 → 0）
 		r.refreshDevice(&device, now, false)
 		next[config.ID] = device
 		for _, property := range config.Properties {
@@ -336,14 +345,14 @@ func (r *Registry) SourceAccessMode(gatewayID string, channelIndex, deviceIndex 
 	return property.AccessMode, true
 }
 
-// WriteLogical 写入一个逻辑点位：刷新缓存 → 归一化 → 返回需北向发布的 FanoutMessage。
-// 仅允许写入 Mode=logical 的属性；设备停用时返回空切片（不发布）。
-func (r *Registry) WriteLogical(deviceID, propertyKey string, value any, source string) ([]FanoutMessage, error) {
+// WriteLogical 写入一个逻辑点位并刷新缓存（北向发布由周期调度器统一承载）。
+// 仅允许写入 Mode=logical 的属性。
+func (r *Registry) WriteLogical(deviceID, propertyKey string, value any, source string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	device, ok := r.devices[deviceID]
 	if !ok {
-		return nil, fmt.Errorf("设备 %s 不存在", deviceID)
+		return fmt.Errorf("设备 %s 不存在", deviceID)
 	}
 	var target *store.Property
 	for i := range device.config.Properties {
@@ -353,13 +362,13 @@ func (r *Registry) WriteLogical(deviceID, propertyKey string, value any, source 
 		}
 	}
 	if target == nil {
-		return nil, fmt.Errorf("属性点位 %s 不存在", propertyKey)
+		return fmt.Errorf("属性点位 %s 不存在", propertyKey)
 	}
 	if target.Mode != store.PropertyModeLogical {
-		return nil, fmt.Errorf("属性点位 %s 不是逻辑点位", propertyKey)
+		return fmt.Errorf("属性点位 %s 不是逻辑点位", propertyKey)
 	}
 	if target.Binding.Method != "" && target.Binding.Method != "ept" {
-		return nil, fmt.Errorf("属性点位 %s 为聚合逻辑点位，无写入权限", propertyKey)
+		return fmt.Errorf("属性点位 %s 为聚合逻辑点位，无写入权限", propertyKey)
 	}
 	now := time.Now().UTC()
 	if device.logical == nil {
@@ -368,10 +377,7 @@ func (r *Registry) WriteLogical(deviceID, propertyKey string, value any, source 
 	device.logical[propertyKey] = logicalValue{Value: value, Timestamp: now, Source: source}
 	r.refreshDevice(&device, now, true)
 	r.devices[deviceID] = device
-	if !device.config.Enabled {
-		return nil, nil
-	}
-	return []FanoutMessage{fanoutFromEntry(device, now)}, nil
+	return nil
 }
 
 // DeviceName 返回设备展示名（供命令记录等用途）。
@@ -383,6 +389,214 @@ func (r *Registry) DeviceName(deviceID string) (string, bool) {
 		return "", false
 	}
 	return device.config.Name, true
+}
+
+// PublishedSnapshot 一次北向发布的内容：设备全量快照 + 本拍产生的告警沿。
+type PublishedSnapshot struct {
+	Data  FanoutMessage
+	Edges []AlarmEdge
+}
+
+// AlarmEdge 一条告警沿（trigger/recover），由发布边界的状态迁移产生。
+type AlarmEdge struct {
+	DeviceID    string
+	DeviceName  string
+	Event       store.DeviceEvent
+	PointName   string
+	Value       any
+	Kind        string // trigger | recover
+}
+
+// PublishSnapshot 对一台设备执行一次北向发布：纯读重算（不推进告警计时器）、
+// 推进发布序列号、执行沿检测（上次发布状态 → 本次状态）。
+// 设备不存在或未启用时返回 false。断流（属性值龄超 staleAfter）时告警
+// 评估自然产出 unavailable 状态（B 方案投影），active → unavailable 不产生沿。
+func (r *Registry) PublishSnapshot(deviceID string, now time.Time) (PublishedSnapshot, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	device, ok := r.devices[deviceID]
+	if !ok || !device.config.Enabled {
+		return PublishedSnapshot{}, false
+	}
+	if device.lastPublished == nil {
+		device.lastPublished = make(map[string]string)
+	}
+	r.refreshDevice(&device, now, false)
+	device.seq++
+	edges := r.detectEdges(&device)
+	snapshot := fanoutFromEntry(device, now)
+	snapshot.Seq = device.seq
+	r.devices[deviceID] = device
+	return PublishedSnapshot{Data: snapshot, Edges: edges}, true
+}
+
+// detectEdges 沿检测（契约 §4.1 迁移表）：比较上次发布状态与本次状态，
+// 产出 trigger（非 active → active）与 recover（active → inactive）。
+// active → unavailable（断流投影）及其他迁移不产生消息。
+func (r *Registry) detectEdges(device *entry) []AlarmEdge {
+	var edges []AlarmEdge
+	for i := range device.config.Events {
+		event := device.config.Events[i]
+		scope := alarmScope(i)
+		current := ""
+		if status, ok := device.events[scope]; ok {
+			current = status.Status
+		}
+		previous := device.lastPublished[scope]
+		device.lastPublished[scope] = current
+		kind := ""
+		switch {
+		case current == "active" && previous != "active":
+			kind = natsclient.AlarmKindTrigger
+		case previous == "active" && current == "inactive":
+			kind = natsclient.AlarmKindRecover
+		}
+		if kind == "" {
+			continue
+		}
+		prop := device.properties[event.Binding.PropertyKey]
+		edges = append(edges, AlarmEdge{
+			DeviceID: device.config.ID, DeviceName: device.config.Name,
+			Event: event, PointName: prop.Name, Value: prop.Value, Kind: kind,
+		})
+	}
+	return edges
+}
+
+// DeviceIDs 返回已启用设备的 ID 列表（字典序），供周期调度器编排。
+func (r *Registry) DeviceIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ids := make([]string, 0, len(r.devices))
+	for id, device := range r.devices {
+		if device.config.Enabled {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// DeviceSummaries 返回设备清单概要（契约 §5.1；未启用设备不对外）。
+// 取写锁做纯读重算（与 Snapshot 相同模式），保证 DataStatus 反映当前陈旧状态。
+func (r *Registry) DeviceSummaries() []natsclient.DeviceSummary {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]natsclient.DeviceSummary, 0, len(r.devices))
+	now := time.Now().UTC()
+	for _, device := range r.devices {
+		if !device.config.Enabled {
+			continue
+		}
+		snapshot := device
+		r.refreshDevice(&snapshot, now, false)
+		out = append(out, natsclient.DeviceSummary{
+			DeviceID: device.config.ID, DeviceName: device.config.Name,
+			TemplateCode: device.config.TemplateCode, TemplateVersion: device.config.TemplateVersion,
+			Description: device.config.Description, Enabled: true,
+			DataStatus:    dataStatusFromProperties(propertiesFromEntry(snapshot)),
+			PropertyCount: len(device.config.Properties), MethodCount: len(device.config.Methods),
+			EventCount: len(device.config.Events),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].DeviceID < out[j].DeviceID })
+	return out
+}
+
+// PropertyDefinitions 返回设备属性定义（契约 §5.2）；设备不存在或未启用时 ok=false。
+func (r *Registry) PropertyDefinitions(deviceID string) ([]natsclient.PropertyDefinition, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	device, ok := r.devices[deviceID]
+	if !ok || !device.config.Enabled {
+		return nil, false
+	}
+	out := make([]natsclient.PropertyDefinition, 0, len(device.config.Properties))
+	for _, property := range device.config.Properties {
+		definition := natsclient.PropertyDefinition{
+			ID: property.ID, Key: property.Key, Name: property.Name, Unit: property.Unit,
+			Type: property.Type, Mode: property.Mode, Method: property.Binding.Method, Default: property.Default,
+		}
+		if definition.Mode == "" {
+			definition.Mode = store.PropertyModePhysical
+		}
+		if definition.Method == "" {
+			definition.Method = "ept"
+		}
+		if property.Type == "status" {
+			definition.Descriptions = statusDefinitions(property.Description)
+		}
+		out = append(out, definition)
+	}
+	return out, true
+}
+
+// MethodDefinitions 返回设备服务定义（契约 §5.3，控制能力清单）；设备不存在或未启用时 ok=false。
+func (r *Registry) MethodDefinitions(deviceID string) ([]natsclient.MethodDefinition, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	device, ok := r.devices[deviceID]
+	if !ok || !device.config.Enabled {
+		return nil, false
+	}
+	propertyModes := make(map[string]string, len(device.config.Properties))
+	for _, property := range device.config.Properties {
+		propertyModes[property.Key] = property.Mode
+	}
+	out := make([]natsclient.MethodDefinition, 0, len(device.config.Methods))
+	for _, method := range device.config.Methods {
+		definition := natsclient.MethodDefinition{
+			ID: method.ID, Key: method.Key, Name: method.Name, Type: method.Type,
+			Bound: method.Binding.PropertyKey != "",
+		}
+		if method.Binding.PropertyKey != "" {
+			definition.TargetMode = propertyModes[method.Binding.PropertyKey]
+		}
+		if method.Type == "number" {
+			definition.Validation = &natsclient.RangeValidation{Min: method.Validation.Min, Max: method.Validation.Max}
+		}
+		if method.Type == "status" {
+			definition.Descriptions = statusDefinitions(method.Descriptions)
+		}
+		out = append(out, definition)
+	}
+	return out, true
+}
+
+// EventDefinitions 返回设备告警定义（契约 §5.4）；设备不存在或未启用时 ok=false。
+func (r *Registry) EventDefinitions(deviceID string) ([]natsclient.EventDefinition, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	device, ok := r.devices[deviceID]
+	if !ok || !device.config.Enabled {
+		return nil, false
+	}
+	propertyNames := make(map[string]string, len(device.config.Properties))
+	for _, property := range device.config.Properties {
+		propertyNames[property.Key] = property.Name
+	}
+	out := make([]natsclient.EventDefinition, 0, len(device.config.Events))
+	for _, event := range device.config.Events {
+		definition := natsclient.EventDefinition{
+			ID: event.ID, Key: event.Key, Name: event.Name, Description: event.Description,
+			Level: event.Level, Type: event.Type, Threshold: event.Threshold, Time: event.Time,
+			BindingProperty: event.Binding.PropertyKey,
+		}
+		if event.Binding.PropertyKey != "" {
+			definition.BindingPropertyName = propertyNames[event.Binding.PropertyKey]
+		}
+		out = append(out, definition)
+	}
+	return out, true
+}
+
+// statusDefinitions 模板状态值描述 → 北向契约状态值。
+func statusDefinitions(descriptions []store.StatusDesc) []natsclient.StatusDefinition {
+	out := make([]natsclient.StatusDefinition, 0, len(descriptions))
+	for _, description := range descriptions {
+		out = append(out, natsclient.StatusDefinition{Enum: description.Enum, Key: description.Key, Name: description.Name, Value: description.Value})
+	}
+	return out
 }
 
 // ResetLiveData clears received source values and active event state while preserving device configuration.
@@ -400,8 +614,9 @@ func (r *Registry) ResetLiveData() {
 	}
 }
 
-// Ingest updates one source device, recalculates affected model devices, and returns fan-out payloads.
-func (r *Registry) Ingest(telemetry SourceTelemetry) []FanoutMessage {
+// Ingest 更新一个来源设备并重算受影响的模型设备（推进告警持续时间计时器）。
+// 纯周期发布模型下不产生北向扇出：北向数据由周期调度器统一发布。
+func (r *Registry) Ingest(telemetry SourceTelemetry) {
 	if telemetry.ReceivedAt.IsZero() {
 		telemetry.ReceivedAt = time.Now().UTC()
 	}
@@ -429,20 +644,14 @@ func (r *Registry) Ingest(telemetry SourceTelemetry) []FanoutMessage {
 	}
 	r.sources[sourceID] = source
 
-	affected := r.bindings[sourceID]
-	output := make([]FanoutMessage, 0, len(affected))
-	for id := range affected {
+	for id := range r.bindings[sourceID] {
 		device, ok := r.devices[id]
 		if !ok {
 			continue
 		}
 		r.refreshDevice(&device, telemetry.ReceivedAt, true)
 		r.devices[id] = device
-		if device.config.Enabled {
-			output = append(output, fanoutFromEntry(device, telemetry.ReceivedAt))
-		}
 	}
-	return output
 }
 
 // SourceID is the current upstream identity. Gateway data v1 identifies a source by its gateway and placement.
@@ -450,81 +659,112 @@ func SourceID(gatewayID string, channelIndex, deviceIndex int) string {
 	return fmt.Sprintf("%s/%d/%d", gatewayID, channelIndex, deviceIndex)
 }
 
-func statusFromEntry(device entry) DeviceStatus {
-	config := device.config
-	status := DeviceStatus{
-		ID:             config.ID,
-		Name:           config.Name,
-		Enabled:        config.Enabled,
-		DataStatus:     "unavailable",
-		ConfigRevision: device.revision,
-		UpdatedAt:      device.updated,
-		Properties:     make([]PropertyStatus, 0, len(config.Properties)),
-		Methods:        make([]MethodStatus, 0, len(config.Methods)),
-		Events:         make([]EventStatus, 0, len(config.Events)),
-	}
-	propertyMap := make(map[string]store.Property, len(config.Properties))
-	available := false
-	degraded := false
-	for _, property := range config.Properties {
-		propertyMap[property.Key] = property
-		propertyStatus, ok := device.properties[property.Key]
-		if !ok {
-			propertyStatus = PropertyStatus{Key: property.Key, Name: property.Name, Unit: property.Unit, Quality: "unavailable", Status: "unavailable"}
+// propertiesFromEntry 组装属性状态列表（缺失项填 unavailable 默认态）。
+func propertiesFromEntry(device entry) []PropertyStatus {
+	out := make([]PropertyStatus, 0, len(device.config.Properties))
+	for _, property := range device.config.Properties {
+		if status, ok := device.properties[property.Key]; ok {
+			out = append(out, status)
+			continue
 		}
-		status.Properties = append(status.Properties, propertyStatus)
-		available = available || propertyStatus.Quality == "good"
-		degraded = degraded || propertyStatus.Quality == "invalid" || propertyStatus.Quality == "stale" || propertyStatus.Quality == "unmapped"
+		out = append(out, PropertyStatus{ID: property.ID, Key: property.Key, Name: property.Name, Unit: property.Unit, Quality: "unavailable", Status: "unavailable"})
 	}
-	for _, method := range config.Methods {
+	return out
+}
+
+// dataStatusFromProperties 依据属性质量判定设备数据状态：
+// 任一 good → available；否则任一 invalid/stale/unmapped → degraded；其余 unavailable。
+func dataStatusFromProperties(properties []PropertyStatus) string {
+	available, degraded := false, false
+	for _, property := range properties {
+		switch property.Quality {
+		case "good":
+			available = true
+		case "invalid", "stale", "unmapped":
+			degraded = true
+		}
+	}
+	if available {
+		return "available"
+	}
+	if degraded {
+		return "degraded"
+	}
+	return "unavailable"
+}
+
+// eventsFromEntry 组装告警状态列表（未评估项按绑定情况填 unavailable/unbound 默认态）。
+func eventsFromEntry(device entry) []EventStatus {
+	propertyNames := make(map[string]string, len(device.config.Properties))
+	for _, property := range device.config.Properties {
+		propertyNames[property.Key] = property.Name
+	}
+	out := make([]EventStatus, 0, len(device.config.Events))
+	for i := range device.config.Events {
+		event := device.config.Events[i]
+		if status, ok := device.events[alarmScope(i)]; ok {
+			out = append(out, status)
+			continue
+		}
+		status := "unavailable"
+		if event.Binding.PropertyKey == "" {
+			status = "unbound"
+		}
+		out = append(out, EventStatus{
+			ID: event.ID, Key: event.Key, Name: event.Name, Level: event.Level, Status: status,
+			Point: event.Binding.PropertyKey, PointName: propertyNames[event.Binding.PropertyKey],
+		})
+	}
+	return out
+}
+
+// methodsFromEntry 组装服务状态列表（绑定状态 + 目标点位模式）。
+func methodsFromEntry(device entry) []MethodStatus {
+	propertyModes := make(map[string]string, len(device.config.Properties))
+	for _, property := range device.config.Properties {
+		propertyModes[property.Key] = property.Mode
+	}
+	out := make([]MethodStatus, 0, len(device.config.Methods))
+	for _, method := range device.config.Methods {
 		methodStatus := "unbound"
 		targetProperty, targetMode := "", ""
 		if method.Binding.PropertyKey != "" {
 			methodStatus = "configured"
 			targetProperty = method.Binding.PropertyKey
-			if target, ok := propertyMap[method.Binding.PropertyKey]; ok {
-				targetMode = target.Mode
-			}
+			targetMode = propertyModes[method.Binding.PropertyKey]
 		}
-		status.Methods = append(status.Methods, MethodStatus{
+		out = append(out, MethodStatus{
 			Key: method.Key, Name: method.Name, Type: method.Type, Status: methodStatus,
 			Validation: method.Validation, Descriptions: method.Descriptions,
 			TargetProperty: targetProperty, TargetMode: targetMode,
 		})
 	}
-	for i := range config.Events {
-		eventStatus, ok := device.events[alarmScope(i)]
-		if !ok {
-			event := config.Events[i]
-			pointName := ""
-			if target, exists := propertyMap[event.Binding.PropertyKey]; exists {
-				pointName = target.Name
-			}
-			status := "unavailable"
-			if event.Binding.PropertyKey == "" {
-				status = "unbound"
-			}
-			eventStatus = EventStatus{
-				Key: event.Key, Name: event.Name, Level: event.Level, Status: status,
-				Point: event.Binding.PropertyKey, PointName: pointName,
-			}
-		}
-		status.Events = append(status.Events, eventStatus)
-	}
-	if available {
-		status.DataStatus = "available"
-	} else if degraded {
-		status.DataStatus = "degraded"
-	}
-	return status
+	return out
 }
 
+// statusFromEntry 组装设备完整状态视图（HTTP 运行时接口用，含服务列表）。
+func statusFromEntry(device entry) DeviceStatus {
+	properties := propertiesFromEntry(device)
+	return DeviceStatus{
+		ID:             device.config.ID,
+		Name:           device.config.Name,
+		Enabled:        device.config.Enabled,
+		DataStatus:     dataStatusFromProperties(properties),
+		ConfigRevision: device.revision,
+		UpdatedAt:      device.updated,
+		Properties:     properties,
+		Methods:        methodsFromEntry(device),
+		Events:         eventsFromEntry(device),
+	}
+}
+
+// fanoutFromEntry 组装北向发布快照：只取属性与告警状态，不构建服务列表（热路径精简）。
 func fanoutFromEntry(device entry, timestamp time.Time) FanoutMessage {
-	status := statusFromEntry(device)
+	properties := propertiesFromEntry(device)
 	return FanoutMessage{
 		DeviceID: device.config.ID, DeviceName: device.config.Name, TemplateCode: device.config.TemplateCode,
-		TemplateVersion: device.config.TemplateVersion, DataStatus: status.DataStatus,
-		Properties: status.Properties, Events: status.Events, Timestamp: timestamp,
+		TemplateVersion: device.config.TemplateVersion, DataStatus: dataStatusFromProperties(properties),
+		ConfigRevision: device.revision, Properties: properties, Events: eventsFromEntry(device), Timestamp: timestamp,
 	}
 }
 
@@ -570,7 +810,7 @@ func (r *Registry) refreshDevice(device *entry, now time.Time, advance bool) {
 }
 
 func (r *Registry) normalizeProperty(device entry, property store.Property, now time.Time) PropertyStatus {
-	status := PropertyStatus{Key: property.Key, Name: property.Name, Unit: property.Unit, Quality: "unbound", Status: "unavailable"}
+	status := PropertyStatus{ID: property.ID, Key: property.Key, Name: property.Name, Unit: property.Unit, Quality: "unbound", Status: "unavailable"}
 	values, timestamp, quality := r.rawValues(device, property, now)
 	if quality != "good" && quality != "default" {
 		status.Quality = quality
@@ -682,7 +922,7 @@ func alarmScope(i int) string {
 func (r *Registry) evaluateAlarm(event store.DeviceEvent, prop PropertyStatus, started map[string]time.Time, now time.Time, advance bool, scope string) EventStatus {
 	rule := event.Event
 	status := EventStatus{
-		Key: rule.Key, Name: rule.Name, Level: rule.Level, Status: "unavailable",
+		ID: event.ID, Key: rule.Key, Name: rule.Name, Level: rule.Level, Status: "unavailable",
 		Value: prop.Value, Point: event.Binding.PropertyKey, PointName: prop.Name,
 	}
 	// 有值（真实数据 good / 逻辑默认 default）才评估；其余质量清计时器不评估。

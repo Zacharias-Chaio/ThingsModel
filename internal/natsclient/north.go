@@ -1,5 +1,5 @@
-// north.go - 北向客户端：面向下游模块。发布归一化数据到 powerpulse.thingsmodel.{id}.data，
-// 并预留北向控制入口：未来其他模块下发控制指令后，经 CommandDispatcher 进程内直通南向客户端。
+// north.go - 北向客户端：数据/告警发布（双队列隔离）+ 查询/控制应答挂载。
+// 数据队列队满丢最旧（快照幂等，保最新）；告警队列绝不丢弃（沿消息不可再生）。
 package natsclient
 
 import (
@@ -12,27 +12,13 @@ import (
 
 	"thingsmodel/internal/config"
 
+	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 )
 
-// outputSubjectPrefix 是静态编码的输出主题前缀：powerpulse + 模块名称。
-// 输出 subject 固定为 {prefix}.{softwareId}.{type}，不对外暴露配置。
-const outputSubjectPrefix = "powerpulse.thingsmodel"
-
-// 消息类型路由：data 为归一化设备状态，alarm 为预留的告警通道。
-const (
-	messageTypeData  = MessageTypeData
-	messageTypeAlarm = "alarm"
-)
-
-// CommandDispatcher 把控制指令直通转发给南向客户端（进程内方法调用，不经 NATS 主题）。
-// 由 SouthClient 实现；北向客户端只依赖此接口，不感知南向实现细节。
-type CommandDispatcher interface {
-	DispatchCommand(ctx context.Context, gatewayID string, cmd MessageCmd) (MessageAck, error)
-}
-
-// outbound 是发布队列中的待发消息：按类型路由到对应输出主题。
+// outbound 是发布队列中的待发消息：主题 + 信封类型 + 负载。
 type outbound struct {
+	subject     string
 	messageType string
 	payload     []byte
 }
@@ -41,21 +27,23 @@ type outbound struct {
 type NorthClient struct {
 	conn         *nats.Conn
 	softwareID   string
+	source       AlarmSource
 	dataSubject  string
 	alarmSubject string
 	log          *slog.Logger
-	events       chan outbound
+	dataQueue    chan outbound
+	alarmQueue   chan outbound
 	eventsMu     sync.Mutex
 	eventsDone   bool
+	shutdown     chan struct{} // 关闭信号：先于关队列发出，解除 enqueueAlarm 的阻塞等待
 	stopOnce     sync.Once
 	done         chan struct{}
-
-	dispatcherMu sync.RWMutex
-	dispatcher   CommandDispatcher
+	responder    *NorthResponder
 }
 
 // NewNorthClient 按配置创建北向客户端；未启用时返回 (nil, nil)。
-func NewNorthClient(ctx context.Context, app config.App) (*NorthClient, error) {
+// service 非 nil 时同时订阅四个查询主题与 .cmd 控制主题（REQ/REP 应答）。
+func NewNorthClient(ctx context.Context, app config.App, service NorthService) (*NorthClient, error) {
 	northConfig := app.Publisher
 	if !northConfig.Enabled {
 		return nil, nil
@@ -66,10 +54,13 @@ func NewNorthClient(ctx context.Context, app config.App) (*NorthClient, error) {
 	log := slog.Default().With("module", "north")
 	client := &NorthClient{
 		softwareID:   app.Software.ID,
-		dataSubject:  outputSubjectPrefix + "." + app.Software.ID + "." + messageTypeData,
-		alarmSubject: outputSubjectPrefix + "." + app.Software.ID + "." + messageTypeAlarm,
+		source:       AlarmSource{Module: "thingsmodel", Instance: app.Software.ID},
+		dataSubject:  SubjectData,
+		alarmSubject: SubjectAlarm,
 		log:          log,
-		events:       make(chan outbound, northConfig.QueueSize),
+		dataQueue:    make(chan outbound, northConfig.QueueSize),
+		alarmQueue:   make(chan outbound, northConfig.QueueSize),
+		shutdown:     make(chan struct{}),
 		done:         make(chan struct{}),
 	}
 	options := []nats.Option{
@@ -90,31 +81,20 @@ func NewNorthClient(ctx context.Context, app config.App) (*NorthClient, error) {
 		return nil, fmt.Errorf("连接北向 NATS: %w", err)
 	}
 	client.conn = connection
+	if service != nil {
+		responder, err := NewNorthResponder(connection, service)
+		if err != nil {
+			connection.Close()
+			return nil, fmt.Errorf("订阅北向服务主题失败: %w", err)
+		}
+		client.responder = responder
+	}
 	go client.publishLoop(ctx)
 	log.Info("北向客户端已启动", "url", northConfig.URL, "data", client.dataSubject, "alarm", client.alarmSubject)
 	return client, nil
 }
 
-// SetDispatcher 注入控制指令直通通道（南向客户端）。热重载后由 Manager 重新接线。
-func (p *NorthClient) SetDispatcher(dispatcher CommandDispatcher) {
-	p.dispatcherMu.Lock()
-	defer p.dispatcherMu.Unlock()
-	p.dispatcher = dispatcher
-}
-
-// SendCommand 把一条控制指令经进程内直通转发到南向客户端，再由其发往网关。
-// 本期为预留入口：北向控制主题/HTTP 入口接入后调用此方法即可。
-func (p *NorthClient) SendCommand(ctx context.Context, gatewayID string, cmd MessageCmd) (MessageAck, error) {
-	p.dispatcherMu.RLock()
-	dispatcher := p.dispatcher
-	p.dispatcherMu.RUnlock()
-	if dispatcher == nil {
-		return MessageAck{}, fmt.Errorf("控制指令通道未接入：南向客户端不可用或未启用")
-	}
-	return dispatcher.DispatchCommand(ctx, gatewayID, cmd)
-}
-
-// PublishData 排队发布一条归一化设备状态到 .data 主题。
+// PublishData 排队发布一条归一化设备状态到 .data 主题（队满丢最旧，保最新快照）。
 func (p *NorthClient) PublishData(data NormalizedData) {
 	data.ThingsModelID = p.softwareID
 	payload, err := json.Marshal(data)
@@ -122,40 +102,81 @@ func (p *NorthClient) PublishData(data NormalizedData) {
 		p.log.Warn("编码标准化遥测失败", "error", err)
 		return
 	}
-	p.enqueue(outbound{messageType: messageTypeData, payload: payload})
+	p.enqueueData(outbound{subject: p.dataSubject, messageType: MessageTypeData, payload: payload})
 }
 
-// PublishAlarm 排队发布一条告警消息到 .alarm 主题。
-// 告警业务逻辑尚未接入，当前仅提供主题路由与发布通道。
-func (p *NorthClient) PublishAlarm(payload []byte) {
-	p.enqueue(outbound{messageType: messageTypeAlarm, payload: payload})
+// PublishAlarm 排队发布一条标准化告警/事件消息（不丢弃策略：沿消息不可再生）。
+// AlarmID/Source/Timestamp 缺省时由本方法补齐（uuid、本模块来源、当前时间）。
+func (p *NorthClient) PublishAlarm(message AlarmMessage) {
+	if message.AlarmID == "" {
+		message.AlarmID = uuid.NewString()
+	}
+	if message.Source == (AlarmSource{}) {
+		message.Source = p.source
+	}
+	if message.Timestamp == 0 {
+		message.Timestamp = time.Now().UTC().UnixMilli()
+	}
+	payload, err := json.Marshal(message)
+	if err != nil {
+		p.log.Warn("编码告警消息失败", "error", err)
+		return
+	}
+	p.enqueueAlarm(outbound{subject: p.alarmSubject, messageType: MessageTypeAlarm, payload: payload})
 }
 
-// enqueue 入队且不阻塞调用方；队列满时丢弃最旧消息，优先保留最新状态。
-func (p *NorthClient) enqueue(message outbound) {
+// enqueueData 入队数据消息且不阻塞调用方；队列满时丢弃最旧消息，优先保留最新状态。
+func (p *NorthClient) enqueueData(message outbound) {
 	p.eventsMu.Lock()
 	defer p.eventsMu.Unlock()
 	if p.eventsDone {
 		return
 	}
 	select {
-	case p.events <- message:
+	case p.dataQueue <- message:
 		return
 	default:
 	}
 	select {
-	case <-p.events:
-		p.log.Warn("北向连接队列已满，丢弃最旧消息")
+	case <-p.dataQueue:
+		p.log.Warn("北向数据队列已满，丢弃最旧消息")
 	default:
 	}
-	p.events <- message
+	p.dataQueue <- message
+}
+
+// enqueueAlarm 入队告警消息：队列满时阻塞等待空间，绝不丢弃（契约：沿消息/终态必达）。
+// 等待期间若客户端开始关闭（shutdown 先于关队列发出），放弃入队直接返回，
+// 避免 publishLoop 已退出时阻塞持有 eventsMu 导致 Close 死锁。
+func (p *NorthClient) enqueueAlarm(message outbound) {
+	p.eventsMu.Lock()
+	defer p.eventsMu.Unlock()
+	if p.eventsDone {
+		return
+	}
+	select {
+	case p.alarmQueue <- message:
+		return
+	default:
+	}
+	p.log.Warn("北向告警队列已满，等待可用空间（不丢弃）")
+	select {
+	case p.alarmQueue <- message:
+	case <-p.shutdown:
+		p.log.Warn("北向客户端正在关闭，告警消息未入队")
+	}
 }
 
 func (p *NorthClient) Close() {
 	p.stopOnce.Do(func() {
+		close(p.shutdown) // 先解除 enqueueAlarm 的阻塞等待，再获取锁关队列
+		if p.responder != nil {
+			p.responder.Close()
+		}
 		p.eventsMu.Lock()
 		p.eventsDone = true
-		close(p.events)
+		close(p.dataQueue)
+		close(p.alarmQueue)
 		p.eventsMu.Unlock()
 		<-p.done
 		if err := p.conn.Drain(); err != nil {
@@ -165,23 +186,29 @@ func (p *NorthClient) Close() {
 	})
 }
 
+// publishLoop 依次发布两条队列中的消息；两条队列均关闭并排空后退出。
 func (p *NorthClient) publishLoop(ctx context.Context) {
 	defer close(p.done)
-	for {
+	dataQueue, alarmQueue := p.dataQueue, p.alarmQueue
+	for dataQueue != nil || alarmQueue != nil {
+		var message outbound
+		var ok bool
 		select {
 		case <-ctx.Done():
 			return
-		case message, ok := <-p.events:
+		case message, ok = <-dataQueue:
 			if !ok {
-				return
+				dataQueue = nil
+				continue
 			}
-			subject := p.dataSubject
-			if message.messageType == messageTypeAlarm {
-				subject = p.alarmSubject
+		case message, ok = <-alarmQueue:
+			if !ok {
+				alarmQueue = nil
+				continue
 			}
-			if err := p.conn.PublishMsg(NewEnvelope(message.messageType, message.payload).toMsg(subject)); err != nil {
-				p.log.Warn("发布消息失败", "type", message.messageType, "error", err)
-			}
+		}
+		if err := p.conn.PublishMsg(NewEnvelope(message.messageType, message.payload).toMsg(message.subject)); err != nil {
+			p.log.Warn("发布消息失败", "type", message.messageType, "subject", message.subject, "error", err)
 		}
 	}
 }

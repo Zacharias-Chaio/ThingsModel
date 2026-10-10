@@ -42,6 +42,7 @@ type Publisher struct {
 	URL                  string `json:"url"`
 	Name                 string `json:"name"`
 	QueueSize            int    `json:"queueSize"`
+	PublishInterval      int    `json:"publishInterval"` // 周期发布间隔（毫秒），0=关闭周期发布
 	ConnectTimeout       int    `json:"connectTimeout"`
 	ReconnectWait        int    `json:"reconnectWait"`
 	MaxReconnects        int    `json:"maxReconnects"`
@@ -68,7 +69,7 @@ func Default() App {
 		},
 		Publisher: Publisher{
 			Enabled: false, URL: "nats://127.0.0.1:4222", Name: "thingsmodel-north",
-			QueueSize: 4096, ConnectTimeout: 2000, ReconnectWait: 2000, MaxReconnects: -1,
+			QueueSize: 4096, PublishInterval: 5000, ConnectTimeout: 2000, ReconnectWait: 2000, MaxReconnects: -1,
 			RetryOnFailedConnect: true, ReconnectBufSize: 8388608, PingInterval: 20000, MaxPingsOut: 3,
 		},
 		StaleAfter:          60000,
@@ -97,7 +98,7 @@ func Validate(app App) error {
 	if publisher.Enabled && strings.TrimSpace(publisher.URL) == "" {
 		return fmt.Errorf("启用北向连接时必须填写服务地址")
 	}
-	if publisher.QueueSize < 1 || publisher.ConnectTimeout < 0 || publisher.ReconnectWait < 0 || publisher.ReconnectBufSize < 0 || publisher.PingInterval < 0 || publisher.MaxPingsOut < 0 || publisher.MaxReconnects < -1 {
+	if publisher.QueueSize < 1 || publisher.PublishInterval < 0 || publisher.ConnectTimeout < 0 || publisher.ReconnectWait < 0 || publisher.ReconnectBufSize < 0 || publisher.PingInterval < 0 || publisher.MaxPingsOut < 0 || publisher.MaxReconnects < -1 {
 		return fmt.Errorf("北向连接数值配置无效")
 	}
 	if app.StaleAfter < 0 {

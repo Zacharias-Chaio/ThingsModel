@@ -164,12 +164,6 @@ func (s *SouthClient) SendCommand(ctx context.Context, gatewayID string, cmd Mes
 	return ack, waiter, nil
 }
 
-// DispatchCommand 实现 CommandDispatcher：供北向客户端进程内直调，把控制指令发往网关。
-func (s *SouthClient) DispatchCommand(ctx context.Context, gatewayID string, cmd MessageCmd) (MessageAck, error) {
-	ack, _, err := s.SendCommand(ctx, gatewayID, cmd)
-	return ack, err
-}
-
 func (s *SouthClient) request(ctx context.Context, subject string, envelope Envelope) (Envelope, error) {
 	timeout := defaultRequestTimeout
 	if deadline, ok := ctx.Deadline(); ok {

@@ -30,6 +30,7 @@ const SETTINGS_CARDS = [
     { path: 'publisher.url', label: '服务地址' },
     { path: 'publisher.name', label: '连接名称' },
     { path: 'publisher.queueSize', label: '发布队列长度', type: 'number', min: 1 },
+    { path: 'publisher.publishInterval', label: '周期发布间隔 (ms)', type: 'number', min: 0, hint: '每设备独立节拍的全局周期；0 关闭周期发布。' },
     { path: 'publisher.connectTimeout', label: '连接超时 (ms)', type: 'number', min: 0 },
     { path: 'publisher.reconnectWait', label: '重连间隔 (ms)', type: 'number', min: 0 },
     { path: 'publisher.maxReconnects', label: '最大重连次数', type: 'number', min: -1 },
